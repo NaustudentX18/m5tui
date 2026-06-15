@@ -1,0 +1,13 @@
+target/
+# .cargo/ is conventionally local-only, but we DO commit .cargo/config.toml
+# as the per-repo build-config anchor (xtensa target will land here in M1).
+.cargo/*
+!.cargo/config.toml
+**/*.rs.bk
+*.tmp
+*.swp
+.DS_Store
+.idea/
+.vscode/
+golden.bin
+tests/sim/golden/*.actual.bin

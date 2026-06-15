@@ -1,0 +1,5 @@
+# M0: no target overrides. xtensa-esp32s3-espidf will be added in M1
+# when the device crate lands.
+[build]
+# Quiet down "unused" warnings for in-progress modules
+rustflags = []

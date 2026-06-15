@@ -1,0 +1,15 @@
+[package]
+name = "m5tui-bin"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+description = "Binary shim for the m5Tui firmware/sim. All logic lives in m5tui-core."
+
+[lints]
+workspace = true
+
+[dependencies]
+m5tui-core = { path = "../m5tui-core" }

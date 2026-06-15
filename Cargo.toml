@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/m5tui-core", "crates/m5tui-bin"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Forest Hudson"]
+repository = "https://github.com/NaustudentX18/m5tui"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

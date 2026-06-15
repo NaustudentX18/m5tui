@@ -1,0 +1,35 @@
+name: xtensa (device build, M1+)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/m5tui-device/**'
+      - '.github/workflows/xtensa.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/m5tui-device/**'
+      - '.github/workflows/xtensa.yml'
+  workflow_dispatch:
+
+jobs:
+  xtensa-stub:
+    name: xtensa toolchain — M0 stub
+    runs-on: ubuntu-latest
+    # M0 has no `crates/m5tui-device/` yet, so this job is intentionally
+    # disabled. Enable the `if:` line below in M1 when the device crate
+    # lands, and change the `cargo` line to the real device build.
+    #
+    # if: github.event_name == 'workflow_dispatch' || hashFiles('crates/m5tui-device/Cargo.toml') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: M0 stub — device crate not yet present
+        run: |
+          echo "M0: no crates/m5tui-device/ present. This workflow is a stub."
+          echo "Enable in M1 by uncommenting the 'if:' line and adding the esp-rs toolchain step."
+          if [ -d crates/m5tui-device ]; then
+            echo "ERROR: device crate exists but workflow is still in stub mode."
+            exit 1
+          fi
+          exit 0
