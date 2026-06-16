@@ -1,0 +1,6 @@
+name: git-status
+key: g
+prefix: ";"
+help: Run git status on remote
+params: []
+template: 'ssh exec "git status"'

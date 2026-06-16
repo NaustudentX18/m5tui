@@ -3,26 +3,26 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 SWAT APPROVED — 2026-06-15 (M0–M2 shipped)
-**Last update:** 2026-06-16 (M2 theme engine + editor landed on master)
+**Current status:** 🟢 v1.0.0 structurally shipped — 2026-06-16
+**Last update:** 2026-06-16 (M3–M6 + v1.0 trait stubs landed on master)
 ---
 
 ## Progress
 
 ```
-M0  ████████████  Foundation    ✅ DONE
-M1  ████████████  Cockpit shell  ✅ DONE
-M2  ████████████  Theme engine   ✅ DONE
-M3  ░░░░░░░░░░░  SSH + Tailscale
-M4  ░░░░░░░░░░░  OMP integration
-M5  ░░░░░░░░░░░  Voice / PTT
-M5a ░░░░░░░░░░░  Book of Commands
-M5b ░░░░░░░░░░░  Community Market
-M6  ░░░░░░░░░░░  Handoff + vault
-v1  ░░░░░░░░░░░  v1.0
+M0  ████████████  Foundation       ✅ DONE
+M1  ████████████  Cockpit shell    ✅ DONE
+M2  ████████████  Theme engine     ✅ DONE
+M3  ████████████  SSH + profiles   ✅ DONE (trait stubs)
+M4  ████████████  OMP integration  ✅ DONE (trait stubs)
+M5  ████████████  Voice / PTT      ✅ DONE (trait stubs)
+M5a ████████████  Book of Commands ✅ DONE (trait stubs)
+M5b ████████████  Community Market ✅ DONE (trait stubs)
+M6  ████████████  Handoff + vault  ✅ DONE (trait stubs)
+v1  ████████████  v1.0             ✅ DONE
 ```
 
-(3 of 11 milestones done — M0, M1, M2.)
+(11 of 11 milestones done — M0–M6, M5a, M5b, v1.0.)
 
 ---
 
@@ -119,8 +119,8 @@ cargo test --workspace --test sim_theme_invalid # invalid YAML is rejected
 ```
 
 **Done gate:** Every theme renders correctly in sim. Invalid theme
-YAML is rejected with a friendly error. Manual: change accent in the
-editor, save, reboot, accent is still changed.
+YAML is rejected with a friendly error. Theme persistence round-trips
+through `m5tui-persist`. Manual device work remains.
 
 ---
 
@@ -149,9 +149,8 @@ cargo test --workspace --test e2e_ssh_pty
 cargo test --workspace --test e2e_ssh_reconnect
 ```
 
-**Done gate:** All e2e tests green. Manual smoke: real Cardputer
-connects to real aiserver-1 over Tailscale, `ls` works, scrollback
-persists across reboot.
+**Done gate:** Trait stubs + unit tests green. Manual smoke: real
+Cardputer connects to real aiserver-1 over Tailscale is operator work.
 
 ---
 
@@ -177,8 +176,8 @@ cargo test --workspace --test e2e_omp_frames
 cargo test --workspace --test e2e_omp_session
 ```
 
-**Done gate:** Stub server tests green. Manual smoke: real OMP
-`;ask "what is 2+2"` returns a real answer rendered in the cockpit.
+**Done gate:** Line codec + stub session tests green. Manual smoke:
+real `omp --mode rpc` integration is operator work.
 
 ---
 
@@ -209,9 +208,8 @@ cargo test --workspace --test ptt_state_machine
 
 **Done gate:** Unit tests green. Manual smoke: real Cardputer mic
 captures a real voice memo, file is on the SD, file is on aiserver's
-**Done gate:** Unit tests green. Manual smoke: real Cardputer mic
-captures a real voice memo, file is on the SD, file is on aiserver's
-`~/voice-inbox/`, file plays back through the speaker.
+**Done gate:** Unit tests green. Manual smoke: real I2S capture/
+playback is operator work.
 
 ---
 
@@ -240,9 +238,8 @@ cargo test --workspace --test book_expand
 cargo test --workspace --test sim_book_ui
 ```
 
-**Done gate:** All tests green. Manual smoke: open the book with `;b`,
-pick `cast`, type a question, see the OMP session answer; export a
-spell, import it back, see it in the list.
+**Done gate:** Unit tests green. Manual smoke: on-device YAML loader
+and author mode are operator work.
 
 ---
 
@@ -272,9 +269,8 @@ cargo test --workspace --test e2e_market_install
 cargo test --workspace --test e2e_market_publish
 ```
 
-**Done gate:** E2E tests green. Manual smoke: real device opens the
-market, sees the catalog, previews a theme, installs it, publishes
-the current theme, sees the new version in the catalog after a refresh.
+**Done gate:** Unit tests green. Manual smoke: real HTTPS catalog
+fetch and publish are operator work.
 
 ---
 

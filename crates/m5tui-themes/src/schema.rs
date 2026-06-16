@@ -28,6 +28,12 @@ impl Rgb565 {
         self.0
     }
 
+    /// 24-bit packed hex value `0xRRGGBB`. Useful for YAML serialization.
+    pub const fn to_rgb24(self) -> u32 {
+        let (r, g, b) = self.to_rgb888();
+        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
     /// 24-bit RGB888 view: `(r, g, b)`. Useful for sim backends that
     /// render the framebuffer as 8-bit-per-channel.
     pub const fn to_rgb888(self) -> (u8, u8, u8) {

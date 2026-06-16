@@ -1,0 +1,10 @@
+name: weather-stub
+key: w
+prefix: ";"
+help: Stub weather spell
+params:
+  - name: city
+    prompt: City
+    default: London
+    required: false
+template: 'omp weather "{city}"'

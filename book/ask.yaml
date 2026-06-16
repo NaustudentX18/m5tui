@@ -1,0 +1,9 @@
+name: ask
+key: a
+prefix: ";"
+help: Ask OMP a question
+params:
+  - name: question
+    prompt: Question
+    required: true
+template: 'omp ask "{question}"'

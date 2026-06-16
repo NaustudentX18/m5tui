@@ -1,0 +1,9 @@
+name: summarize
+key: s
+prefix: ";"
+help: Summarize selected text
+params:
+  - name: text
+    prompt: Text
+    required: true
+template: 'omp summarize "{text}"'

@@ -1,0 +1,6 @@
+name: ssh-status
+key: h
+prefix: ";"
+help: Show SSH connection status
+params: []
+template: 'ssh status'

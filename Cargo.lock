@@ -4,19 +4,72 @@ version = 3
 
 [[package]]
 name = "m5tui-bin"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
+ "m5tui-book",
  "m5tui-core",
+ "m5tui-handoff",
+ "m5tui-market",
+ "m5tui-omp",
+ "m5tui-persist",
+ "m5tui-profile",
+ "m5tui-ssh",
+ "m5tui-themes",
+ "m5tui-voice",
+]
+
+[[package]]
+name = "m5tui-book"
+version = "1.0.0"
+
+[[package]]
+name = "m5tui-core"
+version = "1.0.0"
+dependencies = [
  "m5tui-themes",
 ]
 
 [[package]]
-name = "m5tui-core"
-version = "0.1.0"
+name = "m5tui-handoff"
+version = "1.0.0"
+
+[[package]]
+name = "m5tui-market"
+version = "1.0.0"
 dependencies = [
  "m5tui-themes",
+]
+
+[[package]]
+name = "m5tui-omp"
+version = "1.0.0"
+
+[[package]]
+name = "m5tui-persist"
+version = "1.0.0"
+dependencies = [
+ "m5tui-themes",
+]
+
+[[package]]
+name = "m5tui-profile"
+version = "1.0.0"
+dependencies = [
+ "m5tui-persist",
+]
+
+[[package]]
+name = "m5tui-ssh"
+version = "1.0.0"
+dependencies = [
+ "m5tui-persist",
+ "m5tui-profile",
 ]
 
 [[package]]
 name = "m5tui-themes"
-version = "0.1.0"
+version = "1.0.0"
+
+[[package]]
+name = "m5tui-voice"
+version = "1.0.0"

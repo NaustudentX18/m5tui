@@ -1,0 +1,9 @@
+name: plan
+key: p
+prefix: ";"
+help: Generate a plan via OMP
+params:
+  - name: goal
+    prompt: Goal
+    required: true
+template: 'omp plan "{goal}"'

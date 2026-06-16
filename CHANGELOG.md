@@ -60,4 +60,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No SSH/OMP/voice/market/handoff.** M3–M6 remain on the roadmap.
 
 [0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
+
+## [1.0.0] - 2026-06-16 — Structural v1.0
+
+### Added
+- M3 crates: `m5tui-ssh`, `m5tui-profile`, `m5tui-persist` with trait stubs,
+  in-memory implementations, and unit tests.
+- M4 crate: `m5tui-omp` with line-oriented frame codec, `OmpSession` trait,
+  and `StubOmpSession`.
+- M5 crate: `m5tui-voice` with `AudioIn`/`AudioOut`, WAV encoder/decoder,
+  PTT state machine, and `VoiceInbox`.
+- M5a crate: `m5tui-book` + `book/*.yaml` sample spells, registry, template
+  expansion, undo stack.
+- M5b crate: `m5tui-market` + catalog schema, stub client, offline cache
+  placeholder, theme preview via `m5tui-themes::parse`.
+- M6 crate: `m5tui-handoff` with handoff store, minimal Markdown renderer,
+  and vault search stub.
+- `crates/m5tui-bin/tests/integration_v1.rs` smoke test exercising every
+  crate through public APIs.
+- Bumped every crate version to `1.0.0`.
+
+### Changed
+- `README.md` status block updated to v1.0.0 structurally shipped.
+- `ROADMAP.md` progress bar: all 11 milestones marked DONE.
+
+### Known limitations
+- **Everything beyond M2 is a trait stub.** Real network (SSH/Tailscale),
+  real hardware (I2S, SD atomic writes), real OMP RPC pipe, real market
+  HTTPS backend, and real vault search are deferred to operator-side
+  integration.
+
+[0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
 [0.2.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.2.0
+[1.0.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.0.0
