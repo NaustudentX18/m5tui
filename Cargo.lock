@@ -8,6 +8,7 @@ version = "1.0.0"
 dependencies = [
  "m5tui-book",
  "m5tui-core",
+ "m5tui-device",
  "m5tui-handoff",
  "m5tui-market",
  "m5tui-omp",
@@ -26,6 +27,14 @@ version = "1.0.0"
 name = "m5tui-core"
 version = "1.0.0"
 dependencies = [
+ "m5tui-themes",
+]
+
+[[package]]
+name = "m5tui-device"
+version = "1.0.0"
+dependencies = [
+ "m5tui-core",
  "m5tui-themes",
 ]
 

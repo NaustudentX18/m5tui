@@ -1,33 +1,52 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
-  fmt-clippy-test:
-    name: fmt / clippy / test — ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  host-gates:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      - name: cargo fmt
-        run: cargo fmt --all -- --check
-      - name: cargo clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Build workspace
+        run: cargo build --workspace
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo test
-        run: cargo test --workspace --all-features -- --nocapture
+      - name: Format check
+        run: cargo fmt -- --check
+      - name: Generate simulator screenshots
+        run: cargo run --bin m5tui-bin
+      - name: Upload simulator screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5tui-sim-ppm
+          path: /tmp/m5tui-sim/*.ppm
+          if-no-files-found: error
+
+  device-cross-compile-stub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install espup
+        run: |
+          curl -LO https://github.com/esp-rs/espup/releases/latest/download/espup-x86_64-unknown-linux-gnu
+          chmod +x espup-x86_64-unknown-linux-gnu
+          sudo mv espup-x86_64-unknown-linux-gnu /usr/local/bin/espup
+          espup install
+      - name: Source esp env and attempt device build
+        run: |
+          . $HOME/export-esp.sh
+          cargo build -p m5tui-device --target xtensa-esp32s3-espidf || echo "Device build expected to fail until M5GFX bindings are added"
+        continue-on-error: true

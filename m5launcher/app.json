@@ -1,0 +1,15 @@
+{
+  "name": "m5Tui",
+  "version": "1.0.0",
+  "author": "Forest Hudson",
+  "description": "Keyboard-first agent TUI for M5Stack Cardputer-Adv.",
+  "url": "https://github.com/NaustudentX18/m5tui",
+  "icon": "/m5tui/icon.png",
+  "bin": "/m5tui/m5tui.bin",
+  "type": "app",
+  "target": "M5Stack Cardputer-Adv",
+  "width": 240,
+  "height": 135,
+  "rotation": 1,
+  "args": []
+}

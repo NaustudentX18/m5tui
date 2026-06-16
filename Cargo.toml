@@ -12,6 +12,7 @@ members = [
     "crates/m5tui-book",
     "crates/m5tui-market",
     "crates/m5tui-handoff",
+    "crates/m5tui-device",
 ]
 
 [workspace.package]
