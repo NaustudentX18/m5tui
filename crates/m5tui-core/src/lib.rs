@@ -5,17 +5,26 @@
 //! on the screen, and a sim backend that converts a `Frame` to a 240x135
 //! RGBA8888 byte buffer. No I/O, no allocations in the hot path beyond the
 //! output buffer in `render_to_rgba`.
+//!
+//! M1 scope: the input layer (`keymap`, `KeyAction`, `ChordParser`),
+//! the command palette (`palette::Command`, `BUILTINS`, `fuzzy_score`,
+//! `filter`), extended `Event`/`Outgoing`/`Focus`/`Mode` enums, the
+//! mock-app state, and `step` (the side-channel reducer).
 
 pub mod app;
 pub mod event;
 pub mod framebuffer;
+pub mod keymap;
 pub mod layout;
+pub mod palette;
 pub mod render;
 pub mod sim;
+pub mod widgets;
 
-pub use app::{reduce, AppState};
-pub use event::Event;
+pub use app::{reduce, step, AppState, MockAgent, MockSession, Mode, Toast};
+pub use event::{Event, Focus, KeyAction, Outgoing};
 pub use framebuffer::{Cell, Frame};
+pub use keymap::{parse_chord, LAYOUT};
 pub use layout::{CELL_H, CELL_W, COLS, FB_H, FB_W, GRID_H, ROWS};
 pub use render::render;
 pub use sim::render_to_rgba;
