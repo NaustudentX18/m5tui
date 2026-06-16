@@ -35,4 +35,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No themes yet.** M0 only paints the static title in cyan. The 6 themes and the on-device editor land in M2.
 - **No SSH, OMP, voice.** All the other crates in `ARCHITECTURE.md §2` are M3–M5b work.
 
+## [0.2.0] - 2026-06-16 — M1 Cockpit shell + M2 Theme engine
+
+### Added
+- M1: `m5tui-core` input layer: `keymap` with 56-key Cardputer-Adv matrix, `ChordParser`, and 12 semantic `KeyAction` verbs.
+- M1: `m5tui-core` widgets: `cockpit` (top bar + agent list + session pane + prompt + hint), `palette` (12 built-in commands, fuzzy matcher), `help` (two-column hotkey overlay), and `toast` overlay.
+- M1: `palette::Command` descriptors + pure fuzzy matcher (`fuzzy_score`/`filter`) with no external deps.
+- M1: `Event`/`Outgoing`/`Focus`/`Mode` enums and `step()` side-channel reducer returning `(AppState, Vec<Outgoing>)`.
+- M2: new `m5tui-themes` crate: hand-rolled YAML parser, `Theme` schema, RGB565 conversion, and semantic validation.
+- M2: six built-in themes (`coldwire`, `phosphor`, `lacuna`, `magline`, `noctilux`, `ivoryroom`) under `themes/`.
+- M2: `m5tui-core::default_theme()` and `render(&AppState, &Theme)` — all widgets are now theme-aware and read colors from `theme.palette`.
+- M2: `m5tui-core` widget `theme_editor` (9-screen overlay with live cockpit preview) and `;t` chord dispatch to `Mode::ThemeEditor`.
+- M2: sim golden tests `sim_themes`, `sim_theme_editor`, `sim_theme_invalid`, plus coverage of every built-in theme.
+
+### Changed
+- `render(&AppState)` → `render(&AppState, &Theme)` across `m5tui-core`, `m5tui-bin`, and integration tests.
+- `m5tui-bin` now renders and prints Cockpit, Palette, Help, and ThemeEditor in sequence.
+- `m5tui-core/src/palette.rs` is now the M1 fallback palette; live colors come from `m5tui-themes::ThemePalette`.
+- `ROADMAP.md` progress bar: M0 ✅, M1 ✅, M2 ✅ (3 of 11 done).
+
+### Known limitations
+- **Theme editor is view-only.** The 9 sub-screens (palette swatches, glyphs, layout, etc.) and SD-card save/export are M2.x polish not included in this commit.
+- **No device build yet.** `crates/m5tui-device/` and the `xtensa-esp32s3-espidf` target are still M3 work.
+- **No SSH/OMP/voice/market/handoff.** M3–M6 remain on the roadmap.
+
 [0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
+[0.2.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.2.0

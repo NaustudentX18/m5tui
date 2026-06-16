@@ -68,6 +68,7 @@ pub fn parse_chord(prev: Option<char>, new: char) -> Option<KeyAction> {
         Some(';') => match new {
             '?' => Some(KeyAction::Help),
             '/' => Some(KeyAction::Palette),
+            't' => Some(KeyAction::OpenThemeEditor),
             ';' => Some(KeyAction::Char(';')),
             c => Some(KeyAction::Char(c)),
         },
@@ -123,6 +124,13 @@ mod tests {
     #[test]
     fn chord_double_semicolon_is_literal() {
         assert_eq!(parse_chord(Some(';'), ';'), Some(KeyAction::Char(';')));
+    }
+    #[test]
+    fn chord_t_is_theme_editor() {
+        assert_eq!(
+            parse_chord(Some(';'), 't'),
+            Some(KeyAction::OpenThemeEditor)
+        );
     }
 
     #[test]

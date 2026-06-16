@@ -1,0 +1,29 @@
+name: lacuna
+author: forest
+palette:
+  bg: "#000000"
+  fg: "#aa0000"
+  accent: "#ff3050"
+  dim: "#550000"
+  warn: "#ff5500"
+  err: "#ff0000"
+  ok: "#aa0000"
+  sel_bg: "#330000"
+  sel_fg: "#ffffff"
+  prompt: "#ff3050"
+glyphs:
+  box: ascii
+  scrollbar: thin
+  cursor: bar
+layout:
+  density: compact
+  show_clock: false
+  show_synthwave: false
+animation:
+  level: 0
+  scanline: false
+  phosphor_decay: false
+  glitch_on_event: false
+sound:
+  enabled: false
+brightness: 30

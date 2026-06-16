@@ -16,6 +16,8 @@ pub enum Mode {
     Palette,
     /// Hotkey/help overlay.
     Help,
+    /// On-device theme editor overlay (9 screens).
+    ThemeEditor,
 }
 
 /// A mock agent shown in the cockpit's left pane. Real agents arrive in
@@ -216,6 +218,13 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
                     ..state
                 }
             }
+            _ => state,
+        },
+        KeyAction::OpenThemeEditor => match state.mode {
+            Mode::Cockpit => AppState {
+                mode: Mode::ThemeEditor,
+                ..state
+            },
             _ => state,
         },
         KeyAction::Esc => match state.mode {

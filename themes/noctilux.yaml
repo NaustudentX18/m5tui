@@ -1,0 +1,29 @@
+name: noctilux
+author: forest
+palette:
+  bg: "#000000"
+  fg: "#ffffff"
+  accent: "#ffffff"
+  dim: "#888888"
+  warn: "#ffcc00"
+  err: "#ff4444"
+  ok: "#44ff44"
+  sel_bg: "#222222"
+  sel_fg: "#ffffff"
+  prompt: "#ffffff"
+glyphs:
+  box: rounded
+  scrollbar: block
+  cursor: block
+layout:
+  density: comfy
+  show_clock: true
+  show_synthwave: false
+animation:
+  level: 0
+  scanline: false
+  phosphor_decay: false
+  glitch_on_event: false
+sound:
+  enabled: false
+brightness: 80

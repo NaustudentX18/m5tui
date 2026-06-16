@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/m5tui-core", "crates/m5tui-bin"]
+members = ["crates/m5tui-core", "crates/m5tui-bin", "crates/m5tui-themes"]
 
 [workspace.package]
 edition = "2021"

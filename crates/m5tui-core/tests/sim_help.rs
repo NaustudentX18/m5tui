@@ -5,6 +5,10 @@
 
 use m5tui_core::*;
 
+fn coldwire() -> m5tui_themes::Theme {
+    m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+}
+
 fn help_state() -> AppState {
     AppState {
         mode: Mode::Help,
@@ -15,7 +19,8 @@ fn help_state() -> AppState {
 
 #[test]
 fn help_renders_title() {
-    let frame = render(&help_state());
+    let theme = coldwire();
+    let frame = render(&help_state(), &theme);
     // Title at (row=0, col=0) begins with `m` (from "m5Tui v0.1.0 -- HOTKEYS").
     assert_eq!(
         frame.cells[0][0].glyph, b'm',
@@ -28,7 +33,8 @@ fn help_renders_title() {
 
 #[test]
 fn help_renders_close_hint() {
-    let frame = render(&help_state());
+    let theme = coldwire();
+    let frame = render(&help_state(), &theme);
     // Row 15 is reserved for the `esc close` hint.
     assert_eq!(
         frame.cells[15][0].glyph, b'e',
@@ -36,13 +42,14 @@ fn help_renders_close_hint() {
     );
     assert_eq!(frame.cells[15][1].glyph, b's');
     assert_eq!(frame.cells[15][2].glyph, b'c');
-    // The hint is rendered in DIM.
-    assert_eq!(frame.cells[15][0].fg, palette::DIM);
+    // The hint is rendered in the theme's dim color.
+    assert_eq!(frame.cells[15][0].fg, theme.palette.dim.0);
 }
 
 #[test]
 fn help_renders_rich_binding_table() {
-    let frame = render(&help_state());
+    let theme = coldwire();
+    let frame = render(&help_state(), &theme);
     // The help widget has a 2-column layout with 14 body rows (28 binding
     // slots). The SECTIONS table in widgets/help.rs holds 33 entries:
     // 25 start with `;`, the rest are chord-free names like `tab`,
@@ -78,14 +85,11 @@ fn help_renders_rich_binding_table() {
 
 #[test]
 fn help_renders_in_accent_color() {
-    let frame = render(&help_state());
-    // The title `m5Tui v0.1.0 -- HOTKEYS` is in ACCENT (alias for CYAN =
-    // 0x07FF). The first char is at (row=0, col=0).
+    let theme = coldwire();
+    let frame = render(&help_state(), &theme);
+    // The title `m5Tui v0.1.0 -- HOTKEYS` is in the theme's accent.
     assert_eq!(
-        frame.cells[0][0].fg,
-        palette::ACCENT,
-        "expected the title to be in ACCENT"
+        frame.cells[0][0].fg, theme.palette.accent.0,
+        "expected the title to be in the theme's accent"
     );
-    // ACCENT is defined as the CYAN constant (0x07FF).
-    assert_eq!(frame.cells[0][0].fg, 0x07FF);
 }

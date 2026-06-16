@@ -3,16 +3,16 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 SWAT APPROVED — 2026-06-15 (M0 in progress)
-**Last update:** 2026-06-15 (SWAT approval recorded; M0 work in flight)
+**Current status:** 🟢 SWAT APPROVED — 2026-06-15 (M0–M2 shipped)
+**Last update:** 2026-06-16 (M2 theme engine + editor landed on master)
 ---
 
 ## Progress
 
 ```
-M0  ████████████  Foundation  ✅ DONE
-M1  ░░░░░░░░░░░  Cockpit shell
-M2  ░░░░░░░░░░░  Theme engine
+M0  ████████████  Foundation    ✅ DONE
+M1  ████████████  Cockpit shell  ✅ DONE
+M2  ████████████  Theme engine   ✅ DONE
 M3  ░░░░░░░░░░░  SSH + Tailscale
 M4  ░░░░░░░░░░░  OMP integration
 M5  ░░░░░░░░░░░  Voice / PTT
@@ -22,7 +22,7 @@ M6  ░░░░░░░░░░░  Handoff + vault
 v1  ░░░░░░░░░░░  v1.0
 ```
 
-(1 of 11 milestones done — M0.)
+(3 of 11 milestones done — M0, M1, M2.)
 
 ---
 
@@ -113,8 +113,9 @@ palette, glyphs, density, brightness live. Changes persist.
 
 ```bash
 cargo test --workspace
-cargo test --workspace --test sim_themes      # one golden per theme
-cargo test --workspace --test theme_schema    # invalid YAML is rejected
+cargo test --workspace --test sim_themes       # one golden per theme
+cargo test --workspace --test sim_theme_editor # editor overlay
+cargo test --workspace --test sim_theme_invalid # invalid YAML is rejected
 ```
 
 **Done gate:** Every theme renders correctly in sim. Invalid theme

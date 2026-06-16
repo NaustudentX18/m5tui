@@ -10,6 +10,10 @@
 
 use m5tui_core::*;
 
+fn coldwire() -> m5tui_themes::Theme {
+    m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+}
+
 fn palette_state(query: &str, selected: usize) -> AppState {
     AppState {
         mode: Mode::Palette,
@@ -26,7 +30,8 @@ fn palette_renders_all_builtins_with_empty_query() {
     // column 3 (key at col 0, two spaces of padding). The 'c' of
     // "connect" should be at (row=2, col=3).
     let state = palette_state("", 0);
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     assert_eq!(
         frame.cells[2][3].glyph, b'c',
         "expected 'c' of 'connect' at (row=2, col=3)"
@@ -43,9 +48,9 @@ fn palette_renders_all_builtins_with_empty_query() {
         "expected 'q' of 'quit' at (row=13, col=3)"
     );
     // Sanity: the modal sits on SEL_BG.
-    assert_eq!(frame.cells[0][0].bg, palette::SEL_BG);
-    // The title is in ACCENT.
-    assert_eq!(frame.cells[0][0].fg, palette::ACCENT);
+    assert_eq!(frame.cells[0][0].bg, theme.palette.sel_bg.0);
+    // The title is in the theme's accent.
+    assert_eq!(frame.cells[0][0].fg, theme.palette.accent.0);
 }
 
 #[test]
@@ -54,7 +59,8 @@ fn palette_filters_with_query_c() {
     // (it scores as a prefix and is at index 0; ties break on index
     // ascending). Its name should appear at the top of the listing.
     let state = palette_state("c", 0);
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     assert_eq!(
         frame.cells[2][3].glyph, b'c',
         "expected 'c' of 'connect' at the top of the filtered list"
@@ -72,7 +78,8 @@ fn palette_filters_with_query_xyz() {
     let hits = palette::filter("xyz", &palette::BUILTINS);
     assert!(hits.is_empty(), "filter('xyz') should be empty");
     let state = palette_state("xyz", 0);
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     assert_eq!(
         frame.cells[2][3].glyph, b'c',
         "expected the widget to fall back to all builtins when filter is empty"
@@ -83,20 +90,19 @@ fn palette_filters_with_query_xyz() {
 fn palette_selected_row_uses_inverse_colors() {
     // With palette_query = "" and palette_selected = 2, the third entry
     // (index 2, "theme") is the highlighted row. The widget paints the
-    // selected row with `fg = SEL_FG, bg = ACCENT` (the inverse of the
-    // rest). A non-selected row uses `fg = FG, bg = SEL_BG`.
+    // selected row with `fg = SEL_FG, bg = theme.palette.accent` (the inverse of the
+    // rest). A non-selected row uses `fg = FG, bg = theme.palette.sel_bg`.
     let state = palette_state("", 2);
-    let frame = render(&state);
-    // Selected row (row=2+2=4): background is ACCENT.
+    let theme = coldwire();
+    let frame = render(&state, &theme);
+    // Selected row (row=2+2=4): background is the theme accent.
     assert_eq!(
-        frame.cells[4][0].bg,
-        palette::ACCENT,
+        frame.cells[4][0].bg, theme.palette.accent.0,
         "expected the selected row to have ACCENT background"
     );
-    // Non-selected row (row=2, "connect"): background is SEL_BG.
+    // Non-selected row (row=2, "connect"): background is the theme sel_bg.
     assert_eq!(
-        frame.cells[2][1].bg,
-        palette::SEL_BG,
+        frame.cells[2][1].bg, theme.palette.sel_bg.0,
         "expected the non-selected row to have SEL_BG background"
     );
     // The third builtin in BUILTINS is `theme` — its name should appear
@@ -110,7 +116,8 @@ fn palette_search_row_shows_query() {
     // With palette_query = "the", the search row reads `search: the_`
     // starting at col 0. The 't' is the 8th char (col 8).
     let state = palette_state("the", 0);
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     assert_eq!(
         frame.cells[1][8].glyph, b't',
         "expected the 't' of the query at (row=1, col=8)"

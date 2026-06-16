@@ -12,6 +12,10 @@
 
 use m5tui_core::*;
 
+fn coldwire() -> m5tui_themes::Theme {
+    m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+}
+
 // Layout constants duplicated from `layout.rs` for self-contained tests.
 const CELL_W: usize = 6;
 const CELL_H: usize = 8;
@@ -39,7 +43,8 @@ fn first_opaque_in_cell(buf: &[u8], cell_col: usize, cell_row: usize) -> Option<
 #[test]
 fn sim_cockpit_is_240x135_rgba() {
     let state = AppState::default();
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);
     assert_eq!(
         buf.len(),
@@ -58,7 +63,8 @@ fn sim_cockpit_is_240x135_rgba() {
 #[test]
 fn sim_cockpit_is_deterministic() {
     let state = AppState::default();
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     let buf1 = render_to_rgba(&frame);
     let buf2 = render_to_rgba(&frame);
     assert_eq!(buf1, buf2, "render_to_rgba must be deterministic");
@@ -71,7 +77,8 @@ fn sim_cockpit_non_zero_alpha_at_centre() {
     // (row=2, col=1) holds the first letter of the agent name. Verify
     // that the cell renders at least one opaque pixel in its 6x8 region.
     let state = AppState::default();
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);
     let cell = frame.cells[2][1];
     assert_eq!(cell.glyph, b'a', "expected 'a' at (row=2, col=1)");
@@ -108,7 +115,8 @@ fn sim_cockpit_renders_prompt_caret() {
         prompt: "hello world".into(),
         ..AppState::default()
     };
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);
     assert_eq!(
         frame.cells[15][2].glyph, b'h',
@@ -130,7 +138,8 @@ fn sim_cockpit_focus_agents_cursor() {
         focus: Focus::Agents,
         ..AppState::default()
     };
-    let frame = render(&state);
+    let theme = coldwire();
+    let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);
     assert_eq!(
         frame.cells[2][0].glyph, b'>',

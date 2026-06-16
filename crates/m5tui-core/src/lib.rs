@@ -21,6 +21,13 @@ pub mod render;
 pub mod sim;
 pub mod widgets;
 
+/// The default theme for the M0/M1 sim (and as a sensible fallback
+/// when no theme has been loaded yet). Coldwire is the spec's hero
+/// theme; every other theme slots in the same way.
+pub fn default_theme() -> m5tui_themes::Theme {
+    m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+}
+
 pub use app::{reduce, step, AppState, MockAgent, MockSession, Mode, Toast};
 pub use event::{Event, Focus, KeyAction, Outgoing};
 pub use framebuffer::{Cell, Frame};
@@ -48,11 +55,13 @@ impl std::fmt::Display for CoreError {
 impl std::error::Error for CoreError {}
 
 /// M0 entry point: build the default `AppState`, render it once into a
-/// `Frame`, push that frame through the sim backend, and print the title
-/// plus the output buffer size. Returns `Ok(())` unconditionally for M0.
+/// `Frame` with the default theme, push that frame through the sim
+/// backend, and print the title plus the output buffer size. Returns
+/// `Ok(())` unconditionally for M0.
 pub fn run() -> Result<(), CoreError> {
     let state = AppState::default();
-    let frame = render(&state);
+    let theme = default_theme();
+    let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);
     println!("m5Tui v0.1.0");
     println!(

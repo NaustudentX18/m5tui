@@ -6,7 +6,6 @@
 
 use crate::app::AppState;
 use crate::framebuffer::Frame;
-use crate::palette;
 use crate::widgets;
 
 /// Number of glyphs in the atlas (printable ASCII: 32..=127).
@@ -132,17 +131,19 @@ pub(crate) fn glyph_cols(glyph: u8) -> [u8; GLYPH_BYTES] {
     }
 }
 
-/// Render the current `AppState` into a fresh `Frame`. M1 routes by
-/// `state.mode` to the matching widget (cockpit / palette / help) and
-/// applies the toast overlay on top of whatever the widget drew.
-pub fn render(state: &AppState) -> Frame {
-    let mut frame = Frame::new_solid(palette::BG);
+/// Render the current `AppState` into a fresh `Frame`. Routes by
+/// `state.mode` to the matching widget (cockpit / palette / help /
+/// theme editor) using the supplied theme, and applies the toast
+/// overlay on top of whatever the widget drew.
+pub fn render(state: &AppState, theme: &m5tui_themes::Theme) -> Frame {
+    let mut frame = Frame::new_solid(theme.palette.bg.0);
     match state.mode {
-        crate::app::Mode::Cockpit => widgets::cockpit::render(&mut frame, state),
-        crate::app::Mode::Palette => widgets::palette::render(&mut frame, state),
-        crate::app::Mode::Help => widgets::help::render(&mut frame, state),
+        crate::app::Mode::Cockpit => widgets::cockpit::render(&mut frame, state, theme),
+        crate::app::Mode::Palette => widgets::palette::render(&mut frame, state, theme),
+        crate::app::Mode::Help => widgets::help::render(&mut frame, state, theme),
+        crate::app::Mode::ThemeEditor => widgets::theme_editor::render(&mut frame, state, theme),
     }
-    widgets::toast::render(&mut frame, state);
+    widgets::toast::render(&mut frame, state, theme);
     frame
 }
 
@@ -176,47 +177,70 @@ mod tests {
         );
     }
 
+    fn coldwire() -> m5tui_themes::Theme {
+        m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+    }
+
     #[test]
     fn render_renders_cockpit_by_default() {
         // Default mode is Cockpit. The top bar begins with the
         // `aiserver-1 :: OK ...` status string. The 'a' of "aiserver" is
-        // at (row=0, col=0) in FG on BG.
-        let f = render(&AppState::default());
+        // at (row=0, col=0) in the theme's fg on bg.
+        let theme = coldwire();
+        let f = render(&AppState::default(), &theme);
         let cell = f.cells[0][0];
         assert_eq!(cell.glyph, b'a');
-        assert_eq!(cell.fg, palette::FG);
-        assert_eq!(cell.bg, palette::BG);
-        // The OK marker at (row=0, col=13..15) is in ACCENT.
+        assert_eq!(cell.fg, theme.palette.fg.0);
+        assert_eq!(cell.bg, theme.palette.bg.0);
+        // The OK marker at (row=0, col=13..15) is in the theme's accent.
         assert_eq!(f.cells[0][13].glyph, b'O');
-        assert_eq!(f.cells[0][13].fg, palette::ACCENT);
+        assert_eq!(f.cells[0][13].fg, theme.palette.accent.0);
     }
 
     #[test]
     fn render_dispatches_to_palette_widget() {
         use crate::app::Mode;
+        let theme = coldwire();
         let s = AppState {
             mode: Mode::Palette,
             ..AppState::default()
         };
-        let f = render(&s);
-        // Palette widget: row 0 begins with `COMMAND PALETTE` in ACCENT.
+        let f = render(&s, &theme);
+        // Palette widget: row 0 begins with `COMMAND PALETTE` in the
+        // theme's accent. The first char is `C`.
         let cell = f.cells[0][0];
         assert_eq!(cell.glyph, b'C');
-        assert_eq!(cell.fg, palette::CYAN);
+        assert_eq!(cell.fg, theme.palette.accent.0);
     }
 
     #[test]
     fn render_dispatches_to_help_widget() {
         use crate::app::Mode;
+        let theme = coldwire();
         let s = AppState {
             mode: Mode::Help,
             ..AppState::default()
         };
-        let f = render(&s);
-        // Help widget: row 0 begins with `m5Tui v0.1.0 — HOTKEYS` in
-        // ACCENT. The first char is `m`.
+        let f = render(&s, &theme);
+        // Help widget: row 0 begins with `m5Tui v0.1.0 — HOTKEYS`
+        // in the theme's accent. The first char is `m`.
         let cell = f.cells[0][0];
         assert_eq!(cell.glyph, b'm');
-        assert_eq!(cell.fg, palette::CYAN);
+        assert_eq!(cell.fg, theme.palette.accent.0);
+    }
+
+    #[test]
+    fn render_dispatches_to_theme_editor_widget() {
+        use crate::app::Mode;
+        let theme = coldwire();
+        let s = AppState {
+            mode: Mode::ThemeEditor,
+            ..AppState::default()
+        };
+        let f = render(&s, &theme);
+        // Theme editor: row 0 begins with `THEME: coldwire` in accent.
+        let cell = f.cells[0][0];
+        assert_eq!(cell.glyph, b'T');
+        assert_eq!(cell.fg, theme.palette.accent.0);
     }
 }

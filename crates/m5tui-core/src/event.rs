@@ -25,6 +25,8 @@ pub enum KeyAction {
     Palette,
     /// Open the hotkey/help overlay. Triggered by the `;?` chord.
     Help,
+    /// Open the on-device theme editor. Triggered by the `;t` chord.
+    OpenThemeEditor,
     /// Pop the current overlay, or in the cockpit move focus to the prompt.
     Esc,
     /// Submit the prompt or confirm a selection.

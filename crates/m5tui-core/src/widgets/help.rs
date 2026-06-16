@@ -8,7 +8,7 @@
 use crate::app::AppState;
 use crate::framebuffer::{Cell, Frame};
 use crate::layout::{COLS, ROWS};
-use crate::palette;
+use m5tui_themes::Theme;
 
 /// One binding in the help overlay. `key` is the chord the user types,
 /// `desc` is the human-readable description.
@@ -184,28 +184,25 @@ const SECTIONS: &[Section] = &[
     },
 ];
 
-/// Draw the help overlay into the given frame.
-pub fn render(frame: &mut Frame, _state: &AppState) {
-    // Start from a solid BG.
+/// Draw the help overlay into the given frame. M2: themed.
+pub fn render(frame: &mut Frame, _state: &AppState, theme: &Theme) {
+    let fg = theme.palette.fg.0;
+    let bg = theme.palette.bg.0;
+    let accent = theme.palette.accent.0;
+    let dim = theme.palette.dim.0;
+    // Start from a solid background.
     for row in 0..ROWS {
         for col in 0..COLS {
             frame.cells[row][col] = Cell {
                 glyph: b' ',
-                fg: palette::FG,
-                bg: palette::BG,
+                fg,
+                bg,
                 attrs: 0,
             };
         }
     }
 
-    write_str_colored(
-        frame,
-        0,
-        0,
-        "m5Tui v0.1.0 -- HOTKEYS",
-        palette::ACCENT,
-        palette::BG,
-    );
+    write_str_colored(frame, 0, 0, "m5Tui v0.1.0 -- HOTKEYS", accent, bg);
 
     // Flatten all bindings into a single sequence, preserving section
     // order, then lay them out in two columns.
@@ -223,18 +220,18 @@ pub fn render(frame: &mut Frame, _state: &AppState) {
             for (i, b) in key.bytes().take(3).enumerate() {
                 frame.cells[row][key_col + i] = Cell {
                     glyph: b,
-                    fg: palette::ACCENT,
-                    bg: palette::BG,
+                    fg: accent,
+                    bg,
                     attrs: 0,
                 };
             }
             let desc_col = key_col + 5;
-            write_str_colored(frame, row, desc_col, desc, palette::FG, palette::BG);
+            write_str_colored(frame, row, desc_col, desc, fg, bg);
         }
     }
 
     let hint = "esc close";
-    write_str_colored(frame, ROWS - 1, 0, hint, palette::DIM, palette::BG);
+    write_str_colored(frame, ROWS - 1, 0, hint, dim, bg);
 }
 
 fn write_str_colored(frame: &mut Frame, row: usize, col: usize, s: &str, fg: u16, bg: u16) {
@@ -263,6 +260,10 @@ mod tests {
     use super::*;
     use crate::app::Mode;
 
+    fn coldwire() -> Theme {
+        m5tui_themes::builtin("coldwire").unwrap_or_else(|| panic!("coldwire builtin missing"))
+    }
+
     fn help_state() -> AppState {
         AppState {
             mode: Mode::Help,
@@ -272,16 +273,18 @@ mod tests {
 
     #[test]
     fn help_renders_title_in_accent() {
-        let mut f = Frame::new_solid(palette::BG);
-        render(&mut f, &help_state());
+        let theme = coldwire();
+        let mut f = Frame::new_solid(theme.palette.bg.0);
+        render(&mut f, &help_state(), &theme);
         assert_eq!(f.cells[0][0].glyph, b'm');
-        assert_eq!(f.cells[0][0].fg, palette::ACCENT);
+        assert_eq!(f.cells[0][0].fg, theme.palette.accent.0);
     }
 
     #[test]
     fn help_renders_close_hint_on_last_row() {
-        let mut f = Frame::new_solid(palette::BG);
-        render(&mut f, &help_state());
+        let theme = coldwire();
+        let mut f = Frame::new_solid(theme.palette.bg.0);
+        render(&mut f, &help_state(), &theme);
         let row = ROWS - 1;
         assert_eq!(f.cells[row][0].glyph, b'e');
         assert_eq!(f.cells[row][1].glyph, b's');
@@ -298,12 +301,15 @@ mod tests {
             table_count >= 30,
             "expected >= 30 binding entries in SECTIONS, found {table_count}"
         );
-        let mut f = Frame::new_solid(palette::BG);
-        render(&mut f, &help_state());
+        let theme = coldwire();
+        let mut f = Frame::new_solid(theme.palette.bg.0);
+        render(&mut f, &help_state(), &theme);
         let mut count = 0;
         for row in 1..ROWS - 1 {
-            let left = f.cells[row][0].fg == palette::ACCENT && f.cells[row][0].glyph != b' ';
-            let right = f.cells[row][20].fg == palette::ACCENT && f.cells[row][20].glyph != b' ';
+            let left =
+                f.cells[row][0].fg == theme.palette.accent.0 && f.cells[row][0].glyph != b' ';
+            let right =
+                f.cells[row][20].fg == theme.palette.accent.0 && f.cells[row][20].glyph != b' ';
             if left {
                 count += 1;
             }
@@ -319,10 +325,11 @@ mod tests {
 
     #[test]
     fn help_renders_semicolon_question_binding() {
-        let mut f = Frame::new_solid(palette::BG);
-        render(&mut f, &help_state());
-        // The `;?` binding is the second entry in SECTIONS; in the
-        // 2-col layout it lands in column B at (row=1, col=20).
+        let theme = coldwire();
+        let mut f = Frame::new_solid(theme.palette.bg.0);
+        render(&mut f, &help_state(), &theme);
+        // The `;?` binding is in the SECTIONS; in the 2-col layout it
+        // lands somewhere with a `;` followed by a `?` at key_col+1.
         let mut found = false;
         for row in 1..ROWS {
             for key_col in [0usize, 20] {

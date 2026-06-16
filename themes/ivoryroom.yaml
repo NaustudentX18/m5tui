@@ -1,0 +1,29 @@
+name: ivoryroom
+author: forest
+palette:
+  bg: "#f4ecd8"
+  fg: "#222222"
+  accent: "#444444"
+  dim: "#888888"
+  warn: "#aa6600"
+  err: "#aa0000"
+  ok: "#006600"
+  sel_bg: "#e0d8c0"
+  sel_fg: "#000000"
+  prompt: "#444444"
+glyphs:
+  box: double
+  scrollbar: thin
+  cursor: underline
+layout:
+  density: cozy
+  show_clock: true
+  show_synthwave: false
+animation:
+  level: 0
+  scanline: false
+  phosphor_decay: false
+  glitch_on_event: false
+sound:
+  enabled: true
+brightness: 75

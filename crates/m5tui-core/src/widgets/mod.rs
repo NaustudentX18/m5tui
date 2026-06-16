@@ -12,4 +12,5 @@
 pub mod cockpit;
 pub mod help;
 pub mod palette;
+pub mod theme_editor;
 pub mod toast;

@@ -7,8 +7,16 @@ name = "m5tui-bin"
 version = "0.1.0"
 dependencies = [
  "m5tui-core",
+ "m5tui-themes",
 ]
 
 [[package]]
 name = "m5tui-core"
+version = "0.1.0"
+dependencies = [
+ "m5tui-themes",
+]
+
+[[package]]
+name = "m5tui-themes"
 version = "0.1.0"

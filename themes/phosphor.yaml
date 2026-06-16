@@ -1,0 +1,29 @@
+name: phosphor
+author: forest
+palette:
+  bg: "#000000"
+  fg: "#ffb000"
+  accent: "#ffaa00"
+  dim: "#7a4f00"
+  warn: "#ff5500"
+  err: "#ff0000"
+  ok: "#ffff00"
+  sel_bg: "#3a2400"
+  sel_fg: "#ffffff"
+  prompt: "#ffaa00"
+glyphs:
+  box: double
+  scrollbar: block
+  cursor: underline
+layout:
+  density: compact
+  show_clock: false
+  show_synthwave: false
+animation:
+  level: 1
+  scanline: true
+  phosphor_decay: true
+  glitch_on_event: false
+sound:
+  enabled: true
+brightness: 70

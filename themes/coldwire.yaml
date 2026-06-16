@@ -1,0 +1,29 @@
+name: coldwire
+author: forest
+palette:
+  bg: "#0a1428"
+  fg: "#d0e0ff"
+  accent: "#00d8ff"
+  dim: "#506a8a"
+  warn: "#ffaa00"
+  err: "#ff3050"
+  ok: "#44ee88"
+  sel_bg: "#1a3868"
+  sel_fg: "#ffffff"
+  prompt: "#00d8ff"
+glyphs:
+  box: heavy
+  scrollbar: block
+  cursor: block
+layout:
+  density: compact
+  show_clock: false
+  show_synthwave: true
+animation:
+  level: 1
+  scanline: true
+  phosphor_decay: false
+  glitch_on_event: true
+sound:
+  enabled: true
+brightness: 60

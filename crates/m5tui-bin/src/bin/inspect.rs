@@ -3,7 +3,8 @@ fn main() {
     // For the cockpit, find ANY opaque pixel in the agents list region
     // (rows 2-6, cols 1-18) to confirm the agents are rendered.
     let s = AppState::default();
-    let f = render(&s);
+    let theme = m5tui_core::default_theme();
+    let f = render(&s, &theme);
     let buf = render_to_rgba(&f);
     let mut count = 0;
     let mut first = (0, 0);
