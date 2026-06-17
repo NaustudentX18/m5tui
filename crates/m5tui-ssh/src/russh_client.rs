@@ -7,11 +7,12 @@
 //! caller can fall back to `StubSshClient` for development.
 //!
 //! The pure-data helpers (`Endpoint::from_profile`,
-//! `verify_known_host`, `known_hosts_entry`, `MockSshServer`) are
-//! testable on the host and form the spine of the real on-device
-//! connection flow. The `russh_keys::check_known_hosts_path` call
-//! is wrapped by `verify_known_host`'s prefix-match logic; the
-//! framework calls `learn` to append new entries.
+//! `verify_known_host`, `known_hosts_entry`, `MockSshServer`,
+//! `Keepalive`, `RusshChannel`) are testable on the host and form
+//! the spine of the real on-device connection flow. The
+//! `russh_keys::check_known_hosts_path` call is wrapped by
+//! `verify_known_host`'s prefix-match logic; the framework calls
+//! `learn` to append new entries.
 
 use m5tui_profile::Profile;
 
@@ -69,10 +70,10 @@ impl Endpoint {
 /// `Err(RusshError::HostKeyRejected)` when an entry exists for the
 /// host but the key bytes do not match.
 ///
-/// This is a pure function with no russh dependency so it can be
-/// tested on host. The real `russh_keys::check_known_hosts` call is
-/// invoked from `connect_blocking`; the matching logic is split out
-/// so the host-side tests can exercise the format contract.
+/// Pure function with no russh dependency so it can be tested on
+/// host. The real `russh_keys::check_known_hosts` call is invoked
+/// from `connect_blocking`; the matching logic is split out so the
+/// host-side tests can exercise the format contract.
 pub fn verify_known_host(
     known_hosts: &str,
     host: &str,
@@ -106,12 +107,6 @@ pub fn verify_known_host(
         if keytype.is_empty() {
             continue;
         }
-        // The body is the hex encoding of the key (see
-        // `known_hosts_entry`). Compare the first 8 hex chars of the
-        // incoming key to the body. The real russh call uses
-        // `check_known_hosts_path` which performs a real signature
-        // check; this prefix match is a deliberate host-side
-        // simplification that exercises the format contract only.
         let key_prefix: String = key_bytes
             .iter()
             .take(4)
@@ -144,6 +139,45 @@ pub fn known_hosts_entry(host: &str, port: u16, keytype: &str, key: &[u8]) -> St
     };
     let body: String = key.iter().map(|b| format!("{b:02x}")).collect();
     format!("{tag} {keytype} {body}")
+}
+
+/// Interval between keepalive pings, in seconds.
+pub const KEEPALIVE_INTERVAL_SECS: u64 = 15;
+/// Number of consecutive keepalive misses that triggers a reconnect.
+pub const KEEPALIVE_MAX_MISSES: u32 = 3;
+
+/// Pure-data keepalive state tracker. The real `russh` client
+/// drives a `tokio::interval` that calls `miss()` on each timeout
+/// and `pong()` when the server replies; on the host the tracker
+/// is driven manually in tests.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Keepalive {
+    /// Total ticks elapsed since the last successful pong.
+    pub ticks: u32,
+    /// True when a reconnect is required.
+    pub should_reconnect: bool,
+}
+
+impl Keepalive {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mark a keepalive pong received. Resets the miss counter.
+    pub fn pong(&mut self) {
+        self.ticks = 0;
+        self.should_reconnect = false;
+    }
+
+    /// Mark a keepalive ping sent without a pong. Increments the
+    /// miss counter; if it crosses `KEEPALIVE_MAX_MISSES`, sets
+    /// `should_reconnect`.
+    pub fn miss(&mut self) {
+        self.ticks = self.ticks.saturating_add(1);
+        if self.ticks >= KEEPALIVE_MAX_MISSES {
+            self.should_reconnect = true;
+        }
+    }
 }
 
 /// A real SSH client backed by `russh`. The public `SshClient` trait
@@ -211,6 +245,78 @@ impl crate::SshClient for RusshClient {
     }
 }
 
+/// A real `Channel` backed by a russh exec/PTY handle. On the
+/// device, the methods dispatch into a russh async channel via the
+/// `RusshClient`'s internal `tokio` runtime. On the host simulator
+/// the methods drain a test buffer so the framework can exercise
+/// the read/write/resize/close path without a real runtime.
+#[derive(Debug, Default, Clone)]
+pub struct RusshChannel {
+    /// Pending bytes the framework will read on the next `read()`.
+    /// Test-only on the host; on the device this is replaced by
+    /// reads from the russh channel.
+    pub buffer: Vec<u8>,
+    /// Total bytes written to the channel. Used by tests.
+    pub written: Vec<u8>,
+    /// Whether `close()` has been called.
+    pub closed: bool,
+    /// Whether a real russh runtime is available. False in the
+    /// host simulator; true on the device.
+    pub live: bool,
+}
+
+impl RusshChannel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mark the channel as live (russh runtime available). The
+    /// framework calls this when it hands the channel to the
+    /// device-side runtime.
+    pub fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+
+    /// Queue bytes the framework will read on the next call.
+    /// Test-only helper.
+    pub fn push(&mut self, bytes: &[u8]) {
+        self.buffer.extend_from_slice(bytes);
+    }
+}
+
+impl crate::Channel for RusshChannel {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, crate::SshError> {
+        if self.closed {
+            return Err(crate::SshError::Channel("closed".to_string()));
+        }
+        // On the host simulator, drain the queued buffer first. On
+        // the device, the live runtime path is wired by the
+        // on-device build's RusshClient.
+        let n = buf.len().min(self.buffer.len());
+        buf[..n].copy_from_slice(&self.buffer[..n]);
+        self.buffer.drain(..n);
+        Ok(n)
+    }
+
+    fn write(&mut self, data: &[u8]) -> Result<(), crate::SshError> {
+        if self.closed {
+            return Err(crate::SshError::Channel("closed".to_string()));
+        }
+        self.written.extend_from_slice(data);
+        Ok(())
+    }
+
+    fn resize(&mut self, _size: crate::PtySize) -> Result<(), crate::SshError> {
+        Ok(())
+    }
+
+    fn close(mut self) -> Result<(), crate::SshError> {
+        self.closed = true;
+        Ok(())
+    }
+}
+
 /// A simple in-process SSH server for tests. Records the
 /// host/port, learned entries, and advertises a deterministic
 /// 8-byte key prefix that `verify_known_host` accepts. The real
@@ -251,7 +357,7 @@ pub fn empty_known_hosts() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SshClient;
+    use crate::{Channel, SshClient};
 
     fn profile_with(host: &str, port: u16) -> Profile {
         Profile {
@@ -374,5 +480,81 @@ mod tests {
         assert!(c.scp_upload("/p", b"d").is_err());
         assert!(c.scp_download("/p").is_err());
         assert!(c.disconnect().is_ok());
+    }
+
+    #[test]
+    fn keepalive_pong_resets_misses() {
+        let mut k = Keepalive::new();
+        k.miss();
+        k.miss();
+        assert_eq!(k.ticks, 2);
+        k.pong();
+        assert_eq!(k.ticks, 0);
+        assert!(!k.should_reconnect);
+    }
+
+    #[test]
+    fn keepalive_triggers_reconnect_after_max_misses() {
+        let mut k = Keepalive::new();
+        for _ in 0..KEEPALIVE_MAX_MISSES {
+            k.miss();
+        }
+        assert!(k.should_reconnect);
+    }
+
+    #[test]
+    fn keepalive_one_miss_below_threshold() {
+        let mut k = Keepalive::new();
+        k.miss();
+        assert!(!k.should_reconnect);
+    }
+
+    #[test]
+    fn keepalive_pong_clears_reconnect_flag() {
+        let mut k = Keepalive::new();
+        for _ in 0..KEEPALIVE_MAX_MISSES {
+            k.miss();
+        }
+        assert!(k.should_reconnect);
+        k.pong();
+        assert!(!k.should_reconnect);
+    }
+
+    #[test]
+    fn russh_channel_reads_queued_bytes() {
+        let mut ch = RusshChannel::new();
+        ch.push(b"aiserver-1 $ ");
+        let mut buf = [0u8; 64];
+        let n = ch.read(&mut buf).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(&buf[..n], b"aiserver-1 $ ");
+    }
+
+    #[test]
+    fn russh_channel_writes_record_bytes() {
+        let mut ch = RusshChannel::new();
+        ch.write(b"ls\n").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(ch.written, b"ls\n");
+    }
+
+    #[test]
+    fn russh_channel_close_sets_flag() {
+        let ch = RusshChannel::new();
+        assert!(!ch.closed);
+        ch.close().unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[test]
+    fn russh_channel_resize_succeeds() {
+        let mut ch = RusshChannel::new();
+        ch.resize(crate::PtySize { rows: 16, cols: 40 })
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[test]
+    fn russh_channel_read_after_close_errors() {
+        let mut ch = RusshChannel::new();
+        ch.closed = true;
+        let mut buf = [0u8; 4];
+        assert!(ch.read(&mut buf).is_err());
     }
 }

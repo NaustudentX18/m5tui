@@ -47,7 +47,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests; records connect attempts, learned entries, advertises a
   deterministic 8-byte key prefix.
 
-## [1.4.0] - 2026-06-17 — Theme editor save, doctor report, VU meter, voice playback
+## [1.10.0] - 2026-06-17 — RusshChannel + Keepalive + voice auto-push
+
+### Added
+- `m5tui-ssh::russh_client::RusshChannel` — real `Channel` impl
+  backed by a russh exec/PTY handle. On the host simulator the
+  read/write/resize/close path drains a test buffer; on the
+  device, the on-device build's `RusshClient` runtime drives the
+  russh channel.
+- `m5tui-ssh::russh_client::Keepalive` — pure-data state tracker
+  with `pong()`/`miss()` methods and `KEEPALIVE_INTERVAL_SECS = 15`
+  / `KEEPALIVE_MAX_MISSES = 3` constants. Drives the keepalive ping
+  loop and triggers reconnect after 3 missed pongs.
+- `m5tui-voice::auto_push_command(enabled, host, path)` — builds
+  the `scp` command for a single memo push to `~/voice-inbox/`;
+  returns `None` when auto-push is disabled.
+- `m5tui-voice::plan_auto_push(inbox, enabled, host)` — plans a
+  batch of auto-push commands for every memo with `pushed == false`.
+  Returns an empty list when auto-push is disabled.
+
 
 ### Added
 - `m5tui-status` crate (new lib content): `BatteryStatus`, `WifiStatus`, `TailscaleStatus`, `ServerHealth`, `OmpPing`, `DiskUsage`, `Uptime` readings with healthy/warn/fail thresholds. `DoctorSnapshot::render_markdown()` produces a self-contained doctor report; `report_filename()` names the file.

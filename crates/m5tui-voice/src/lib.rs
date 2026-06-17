@@ -458,6 +458,32 @@ impl VoiceInbox for InMemoryInbox {
     }
 }
 
+/// Build the auto-push command for a single memo. Returns `None`
+/// when auto-push is disabled, so the framework can skip the
+/// `scp_upload` round-trip. The remote path is `~/voice-inbox/`
+/// by default; the framework expands `~` on the server side.
+pub fn auto_push_command(enabled: bool, host: &str, local_path: &str) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    Some(format!("scp {local_path} {host}:~/voice-inbox/"))
+}
+
+/// Plan a batch of auto-push commands for every memo in an inbox
+/// that has `pushed == false`. Returns the list of commands the
+/// framework will dispatch in order.
+pub fn plan_auto_push(inbox: &dyn VoiceInbox, enabled: bool, host: &str) -> Vec<String> {
+    if !enabled {
+        return Vec::new();
+    }
+    inbox
+        .list()
+        .into_iter()
+        .filter(|m| !m.pushed)
+        .map(|m| format!("scp {} {host}:~/voice-inbox/{}", m.id, m.id))
+        .collect()
+}
+
 /// Directory-backed inbox that discovers `.wav` files on demand.
 pub struct DirInbox {
     dir: PathBuf,
@@ -750,5 +776,60 @@ mod tests {
         assert_eq!(BootSound::Arp.fallback_hz(), 660);
         assert_eq!(BootSound::Silent.asset(), "");
         assert_eq!(BootSound::Silent.fallback_hz(), 0);
+    }
+
+    #[test]
+    fn auto_push_command_disabled_returns_none() {
+        assert!(auto_push_command(false, "h", "/tmp/m.wav").is_none());
+    }
+
+    #[test]
+    fn auto_push_command_enabled_returns_scp() {
+        let cmd =
+            auto_push_command(true, "aiserver-1", "/tmp/m.wav").unwrap_or_else(|| panic!("none"));
+        assert_eq!(cmd, "scp /tmp/m.wav aiserver-1:~/voice-inbox/");
+    }
+
+    #[test]
+    fn plan_auto_push_skips_pushed_memos() {
+        let mut inbox = InMemoryInbox::new();
+        inbox
+            .add(VoiceMemo {
+                id: "m1".to_string(),
+                created: 1,
+                samples: vec![1, 2, 3],
+                sample_rate: 16000,
+                pushed: false,
+            })
+            .unwrap();
+        inbox
+            .add(VoiceMemo {
+                id: "m2".to_string(),
+                created: 2,
+                samples: vec![4, 5, 6],
+                sample_rate: 16000,
+                pushed: true,
+            })
+            .unwrap();
+        let plan = plan_auto_push(&inbox, true, "h");
+        assert_eq!(plan.len(), 1);
+        assert!(plan[0].contains("m1"));
+        assert!(!plan[0].contains("m2"));
+    }
+
+    #[test]
+    fn plan_auto_push_disabled_returns_empty() {
+        let mut inbox = InMemoryInbox::new();
+        inbox
+            .add(VoiceMemo {
+                id: "m1".to_string(),
+                created: 1,
+                samples: vec![1],
+                sample_rate: 16000,
+                pushed: false,
+            })
+            .unwrap();
+        let plan = plan_auto_push(&inbox, false, "h");
+        assert!(plan.is_empty());
     }
 }
