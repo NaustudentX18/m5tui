@@ -15,3 +15,4 @@ pub mod overlay;
 pub mod palette;
 pub mod theme_editor;
 pub mod toast;
+pub mod vu;

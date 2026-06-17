@@ -1167,6 +1167,7 @@ name = "m5tui-handoff"
 version = "1.0.0"
 dependencies = [
  "m5tui-omp",
+ "serde_json",
 ]
 
 [[package]]
@@ -1226,6 +1227,10 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
 ]
+
+[[package]]
+name = "m5tui-status"
+version = "1.0.0"
 
 [[package]]
 name = "m5tui-themes"

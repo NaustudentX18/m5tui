@@ -163,6 +163,139 @@ pub struct Hit {
     pub snippet: String,
 }
 
+impl Hit {
+    /// Format a single hit as one line for a 40-column TUI display.
+    /// The path is truncated to 24 chars, then the title follows.
+    pub fn display_line(&self) -> String {
+        let path = if self.path.len() > 24 {
+            format!("~{}", &self.path[self.path.len() - 23..])
+        } else {
+            self.path.clone()
+        };
+        format!("{:<24} {}", path, self.title)
+    }
+}
+
+/// Parse one JSONL line into a `Hit`. The line is expected to be
+/// `{"path":"...","title":"...","snippet":"..."}`. Returns a
+/// `HandoffError::Parse` on any malformed input.
+pub fn parse_hit_jsonl(line: &str) -> Result<Hit, HandoffError> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Err(HandoffError::Parse("empty line".to_string()));
+    }
+    let v: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| HandoffError::Parse(format!("json: {e}")))?;
+    let path = v
+        .get("path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| HandoffError::Parse("missing path".to_string()))?
+        .to_string();
+    let title = v
+        .get("title")
+        .and_then(|p| p.as_str())
+        .unwrap_or("")
+        .to_string();
+    let snippet = v
+        .get("snippet")
+        .and_then(|p| p.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(Hit {
+        path,
+        title,
+        snippet,
+    })
+}
+
+/// Parse a stream of JSONL hits into a `Vec<Hit>`. Stops on the first
+/// parse error and returns it; blank lines are ignored.
+pub fn parse_hits_jsonl(stream: &str) -> Result<Vec<Hit>, HandoffError> {
+    let mut out = Vec::new();
+    for line in stream.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        out.push(parse_hit_jsonl(line)?);
+    }
+    Ok(out)
+}
+
+/// A single search-history entry: the query and the time it was run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub query: String,
+    pub ran_at: u64,
+}
+
+/// In-memory append-only history of vault searches.
+#[derive(Debug, Default, Clone)]
+pub struct SearchHistory {
+    entries: Vec<HistoryEntry>,
+}
+
+impl SearchHistory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a new search query. Empty queries are ignored.
+    pub fn record(&mut self, query: &str, ran_at: u64) {
+        if query.is_empty() {
+            return;
+        }
+        self.entries.push(HistoryEntry {
+            query: query.to_string(),
+            ran_at,
+        });
+    }
+
+    /// Number of recorded searches.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True when no searches have been recorded.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Most-recent searches first, capped at `n` entries.
+    pub fn recent(&self, n: usize) -> Vec<&HistoryEntry> {
+        let skip = self.entries.len().saturating_sub(n);
+        self.entries[skip..].iter().rev().collect()
+    }
+
+    /// Serialize the history as one JSONL line per entry.
+    pub fn to_jsonl(&self) -> String {
+        self.entries
+            .iter()
+            .map(|e| serde_json::json!({"query": e.query, "ran_at": e.ran_at}).to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Re-hydrate the history from JSONL. Malformed lines are silently
+    /// dropped so a corrupt history file doesn't break the picker.
+    pub fn load_jsonl(&mut self, stream: &str) {
+        for line in stream.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                let q = v.get("query").and_then(|q| q.as_str()).unwrap_or("");
+                let t = v.get("ran_at").and_then(|t| t.as_u64()).unwrap_or(0);
+                if !q.is_empty() {
+                    self.entries.push(HistoryEntry {
+                        query: q.to_string(),
+                        ran_at: t,
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// Vault search abstraction.
 pub trait VaultSearch: Send + Sync {
     fn query(&self, q: &str) -> Result<Vec<Hit>, HandoffError>;
@@ -316,5 +449,93 @@ mod tests {
             }
             other => panic!("unexpected frame: {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_single_jsonl_hit() {
+        let line = r#"{"path":"vault/m5tui.md","title":"m5Tui","snippet":"M2 done"}"#;
+        let h = parse_hit_jsonl(line).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(h.path, "vault/m5tui.md");
+        assert_eq!(h.title, "m5Tui");
+        assert_eq!(h.snippet, "M2 done");
+    }
+
+    #[test]
+    fn parse_hits_jsonl_ignores_blank_lines() {
+        let stream = r#"{"path":"a","title":"A","snippet":"a"}
+{"path":"b","title":"B","snippet":"b"}
+"#;
+        let hits = parse_hits_jsonl(stream).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].path, "a");
+        assert_eq!(hits[1].path, "b");
+    }
+
+    #[test]
+    fn parse_hits_jsonl_errors_on_bad_json() {
+        let stream = r#"{"path":"a"}
+not json"#;
+        let r = parse_hits_jsonl(stream);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn hit_display_line_fits_40_cols() {
+        let h = Hit {
+            path: "vault/very/long/path/to/some/file.md".to_string(),
+            title: "X".to_string(),
+            snippet: "y".to_string(),
+        };
+        let line = h.display_line();
+        assert!(
+            line.len() <= 40,
+            "line too long: '{line}' len={}",
+            line.len()
+        );
+    }
+
+    #[test]
+    fn search_history_records_and_recent() {
+        let mut h = SearchHistory::new();
+        h.record("rust", 1);
+        h.record("tui", 2);
+        h.record("m5tui", 3);
+        let r = h.recent(2);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].query, "m5tui");
+        assert_eq!(r[1].query, "tui");
+    }
+
+    #[test]
+    fn search_history_ignores_empty() {
+        let mut h = SearchHistory::new();
+        h.record("", 1);
+        h.record("ok", 2);
+        assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn search_history_round_trip() {
+        let mut h = SearchHistory::new();
+        h.record("alpha", 100);
+        h.record("beta", 200);
+        let jsonl = h.to_jsonl();
+        let mut h2 = SearchHistory::new();
+        h2.load_jsonl(&jsonl);
+        assert_eq!(h2.len(), 2);
+        assert_eq!(h2.recent(1)[0].query, "beta");
+    }
+
+    #[test]
+    fn search_history_load_silently_drops_bad_lines() {
+        let mut h = SearchHistory::new();
+        h.load_jsonl(
+            r#"not json
+{"query":"x","ran_at":1}
+{"query":42}
+"#,
+        );
+        assert_eq!(h.len(), 1);
+        assert_eq!(h.recent(1)[0].query, "x");
     }
 }

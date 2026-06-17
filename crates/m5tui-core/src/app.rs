@@ -85,6 +85,17 @@ pub struct AppState {
     pub palette_selected: usize,
     pub clock: u64,
     pub toast: Option<Toast>,
+    /// When `Some`, the theme editor has a draft theme in flight. The
+    /// framework can show "modified" indicators next to menu items and
+    /// the `;8`/commit chord targets the draft instead of the active
+    /// theme.
+    pub theme_draft: Option<m5tui_themes::Theme>,
+    /// Current cursor into the theme editor's 9 menu items.
+    pub theme_menu_index: usize,
+    /// Current draft palette (subset of the full theme) the editor
+    /// shows for live preview. Kept as a separate field so the
+    /// renderer can read it without cloning the whole theme.
+    pub theme_draft_palette: Option<m5tui_themes::ThemePalette>,
 }
 
 impl Default for AppState {
@@ -139,6 +150,9 @@ impl Default for AppState {
             palette_selected: 0,
             clock: 0,
             toast: None,
+            theme_draft: None,
+            theme_menu_index: 0,
+            theme_draft_palette: None,
         }
     }
 }
@@ -220,7 +234,6 @@ fn open_overlay(state: AppState, mode: Mode, event: Outgoing, out: &mut Vec<Outg
     out.push(event);
     AppState { mode, ..state }
 }
-
 /// Save the prompt contents as a memo note. Empty prompts are ignored.
 fn save_memo(state: AppState, out: &mut Vec<Outgoing>) -> AppState {
     if state.mode != Mode::Cockpit || state.prompt.is_empty() {
@@ -229,6 +242,45 @@ fn save_memo(state: AppState, out: &mut Vec<Outgoing>) -> AppState {
     out.push(Outgoing::SaveMemo(state.prompt.clone()));
     AppState {
         prompt: String::new(),
+        ..state
+    }
+}
+
+/// Fork the active theme into a draft. The editor uses this when the
+/// user opens the "colors" sub-screen and starts editing swatches.
+fn fork_draft_theme(state: AppState) -> AppState {
+    if state.theme_draft.is_some() {
+        return state;
+    }
+    // No live theme in AppState yet; the framework will call
+    // `Outgoing::RequestTheme` so the device side can supply the
+    // current one. Until then we seed a sensible default.
+    let draft = m5tui_themes::builtin("coldwire");
+    match draft {
+        Some(t) => AppState {
+            theme_draft: Some(t),
+            ..state
+        },
+        None => state,
+    }
+}
+
+/// Commit the draft theme to the persist layer. Emits
+/// `Outgoing::SaveTheme(draft)` and clears the draft pointer.
+fn commit_draft_theme(state: AppState, out: &mut Vec<Outgoing>) -> AppState {
+    if let Some(draft) = state.theme_draft.clone() {
+        out.push(Outgoing::SaveTheme(Box::new(draft)));
+    }
+    AppState {
+        theme_draft: None,
+        ..state
+    }
+}
+
+/// Discard the draft theme. No `Outgoing` is emitted.
+fn discard_draft_theme(state: AppState) -> AppState {
+    AppState {
+        theme_draft: None,
         ..state
     }
 }
@@ -253,6 +305,9 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
         KeyAction::OpenHandoff => open_overlay(state, Mode::Handoff, Outgoing::OpenHandoff, out),
         KeyAction::OpenMemory => open_overlay(state, Mode::Memory, Outgoing::OpenMemory, out),
         KeyAction::SaveMemo => save_memo(state, out),
+        KeyAction::ForkDraftTheme => fork_draft_theme(state),
+        KeyAction::CommitDraftTheme => commit_draft_theme(state, out),
+        KeyAction::DiscardDraftTheme => discard_draft_theme(state),
         KeyAction::Esc => match state.mode {
             Mode::Cockpit => AppState {
                 focus: Focus::Prompt,
@@ -398,7 +453,8 @@ fn apply_outgoing(state: AppState, o: Outgoing, out: &mut Vec<Outgoing>) -> AppS
         | Outgoing::CycleFocus(_)
         | Outgoing::SaveMemo(_)
         | Outgoing::PickProfile(_)
-        | Outgoing::RunSpell(_) => {
+        | Outgoing::RunSpell(_)
+        | Outgoing::SaveTheme(_) => {
             // The framework can replay these back into the reducer; for
             // now we just record the round-trip and leave state alone.
             out.push(o);

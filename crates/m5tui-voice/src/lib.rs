@@ -294,6 +294,79 @@ pub struct VoiceMemo {
     pub pushed: bool,
 }
 
+/// A playback request the framework should fulfil. The framework
+/// resolves the id against the active `VoiceInbox` and pushes the
+/// samples through the host codec (cpal on host, I2S + ES8311 on the
+/// device). The `at_tick` field lets the reducer schedule a deferred
+/// playback relative to `AppState::clock`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaybackRequest {
+    pub id: String,
+    pub at_tick: u64,
+    pub looped: bool,
+}
+
+impl PlaybackRequest {
+    pub fn once(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            at_tick: 0,
+            looped: false,
+        }
+    }
+    pub fn looped(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            at_tick: 0,
+            looped: true,
+        }
+    }
+    pub fn at(mut self, tick: u64) -> Self {
+        self.at_tick = tick;
+        self
+    }
+}
+
+/// A short boot-time sound effect. The framework plays these once
+/// during the boot screen so the user gets audible feedback that the
+/// device is alive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootSound {
+    /// The "I'm awake" chime. Default duration ~120 ms.
+    Boot,
+    /// Soft click on key press.
+    Click,
+    /// Higher-pitched acknowledgement tone.
+    Arp,
+    /// No sound (silent boot).
+    Silent,
+}
+
+impl BootSound {
+    /// Path of the asset to play, relative to `/sd/m5tui/sounds/`. The
+    /// framework falls back to a synthesized tone when the file is
+    /// missing.
+    pub fn asset(self) -> &'static str {
+        match self {
+            Self::Boot => "boot.wav",
+            Self::Click => "click.wav",
+            Self::Arp => "arp.wav",
+            Self::Silent => "",
+        }
+    }
+
+    /// Synthesised tone frequency in Hz. `0` means silence. Used as
+    /// the fallback when the asset file is missing.
+    pub fn fallback_hz(self) -> u16 {
+        match self {
+            Self::Boot => 880,
+            Self::Click => 1320,
+            Self::Arp => 660,
+            Self::Silent => 0,
+        }
+    }
+}
+
 impl VoiceMemo {
     pub fn from_wav(id: String, created: u64, wav: &[u8]) -> Result<Self, VoiceError> {
         let (samples, sample_rate) = Wav::decode_mono_pcm16(wav)?;
@@ -654,5 +727,28 @@ mod tests {
         );
         assert_eq!(inbox.plan_queue().len(), 1);
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn playback_request_once_and_looped() {
+        let p = PlaybackRequest::once("m1");
+        assert_eq!(p.id, "m1");
+        assert!(!p.looped);
+        assert_eq!(p.at_tick, 0);
+        let p2 = PlaybackRequest::looped("m2").at(42);
+        assert!(p2.looped);
+        assert_eq!(p2.at_tick, 42);
+    }
+
+    #[test]
+    fn boot_sound_assets_and_frequencies() {
+        assert_eq!(BootSound::Boot.asset(), "boot.wav");
+        assert_eq!(BootSound::Boot.fallback_hz(), 880);
+        assert_eq!(BootSound::Click.asset(), "click.wav");
+        assert_eq!(BootSound::Click.fallback_hz(), 1320);
+        assert_eq!(BootSound::Arp.asset(), "arp.wav");
+        assert_eq!(BootSound::Arp.fallback_hz(), 660);
+        assert_eq!(BootSound::Silent.asset(), "");
+        assert_eq!(BootSound::Silent.fallback_hz(), 0);
     }
 }

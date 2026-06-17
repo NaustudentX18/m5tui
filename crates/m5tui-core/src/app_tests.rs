@@ -379,3 +379,40 @@ fn step_overlay_open_ignored_when_not_in_cockpit() {
     assert_eq!(s2.mode, Mode::Palette);
     assert!(!outs.contains(&Outgoing::OpenBook));
 }
+
+#[test]
+fn step_fork_draft_theme_creates_draft() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Key(KeyAction::ForkDraftTheme));
+    assert!(s2.theme_draft.is_some());
+    assert_eq!(s2.theme_draft.as_ref().unwrap().name, "coldwire");
+}
+
+#[test]
+fn step_fork_draft_theme_idempotent() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Key(KeyAction::ForkDraftTheme));
+    let draft1 = s2.theme_draft.clone();
+    let (s3, _) = step(s2, Event::Key(KeyAction::ForkDraftTheme));
+    assert_eq!(s3.theme_draft, draft1);
+}
+
+#[test]
+fn step_commit_draft_theme_emits_save() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Key(KeyAction::ForkDraftTheme));
+    let (s3, outs) = step(s2, Event::Key(KeyAction::CommitDraftTheme));
+    assert!(s3.theme_draft.is_none());
+    let has_save = outs.iter().any(|o| matches!(o, Outgoing::SaveTheme(_)));
+    assert!(has_save, "expected Outgoing::SaveTheme in {outs:?}");
+}
+
+#[test]
+fn step_discard_draft_theme_clears_without_save() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Key(KeyAction::ForkDraftTheme));
+    let (s3, outs) = step(s2, Event::Key(KeyAction::DiscardDraftTheme));
+    assert!(s3.theme_draft.is_none());
+    let has_save = outs.iter().any(|o| matches!(o, Outgoing::SaveTheme(_)));
+    assert!(!has_save);
+}

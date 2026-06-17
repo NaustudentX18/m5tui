@@ -13,3 +13,4 @@ workspace = true
 
 [dependencies]
 m5tui-omp = { path = "../m5tui-omp" }
+serde_json = "1.0"

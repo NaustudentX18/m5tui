@@ -45,7 +45,15 @@ pub enum KeyAction {
     OpenMemory,
     /// Save a memo. Triggered by the `;w` chord.
     SaveMemo,
-    /// Pop the current overlay, or in the cockpit move focus to the prompt.
+    /// Enter the theme editor's edit mode by forking the active theme
+    /// into a draft. Triggered by the `;8` chord (or by pressing 8 in
+    /// the editor menu).
+    ForkDraftTheme,
+    /// Commit the current draft theme back to the active theme. Sent
+    /// by the editor's "save" item.
+    CommitDraftTheme,
+    /// Discard the current draft theme.
+    DiscardDraftTheme,
     Esc,
     /// Submit the prompt or confirm a selection.
     Enter,
@@ -107,6 +115,9 @@ pub enum Outgoing {
     PickProfile(String),
     /// Run a book spell — `id` is the selected spell identifier.
     RunSpell(String),
+    /// Save the current draft theme. The framework writes it to
+    /// `/sd/m5tui/themes/<name>.yaml` via the persist `Driver`.
+    SaveTheme(Box<m5tui_themes::Theme>),
 }
 
 /// All events the reducer accepts. `Tick` and `Quit` were M0; everything
