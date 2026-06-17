@@ -1,13 +1,10 @@
-//! `m5tui-omp` — OMP JSON-RPC-ish frame codec and session stubs.
+//! `m5tui-omp` — OMP JSON-RPC codec and session stubs.
 //!
 //! M4 defines a line-oriented protocol: every frame is one line of the
-//! form `KIND JSON-LIKE-BODY`. The body uses a tiny subset of JSON
-//! (strings only) so we can stay dependency-free. A real serde_json codec
-//! can later implement the same `OmpCodec` trait.
-
+//! form `KIND JSON-LIKE-BODY`. A real serde-backed codec is also provided
+//! as `JsonCodec` for interop with the OMP RPC server.
 use std::collections::HashMap;
 
-/// A single OMP frame flowing between m5Tui and the orchestrator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OmpFrame {
     Ask {
@@ -369,6 +366,209 @@ impl OmpSession for StubOmpSession {
     }
 }
 
+/// Serde-backed JSON codec. Wire format is one JSON object per line so the
+/// stream is line-delimited and the codec is independent of transport.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct JsonCodec;
+
+impl JsonCodec {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl OmpCodec for JsonCodec {
+    fn encode(&self, frame: &OmpFrame) -> String {
+        let body = match frame {
+            OmpFrame::Ask { id, text } => {
+                serde_json::json!({"id": id, "text": text})
+            }
+            OmpFrame::Answer { id, text } => {
+                serde_json::json!({"id": id, "text": text})
+            }
+            OmpFrame::ToolCall { id, tool, args } => {
+                serde_json::json!({"id": id, "tool": tool, "args": args})
+            }
+            OmpFrame::ToolResult { id, output } => {
+                serde_json::json!({"id": id, "output": output})
+            }
+            OmpFrame::TodoUpdate { id, text, done } => {
+                serde_json::json!({"id": id, "text": text, "done": done})
+            }
+            OmpFrame::Subagent { id, task } => {
+                serde_json::json!({"id": id, "task": task})
+            }
+            OmpFrame::StreamingChunk {
+                id,
+                chunk,
+                finished,
+            } => serde_json::json!({"id": id, "chunk": chunk, "finished": finished}),
+            OmpFrame::Thinking { id, text } => {
+                serde_json::json!({"id": id, "text": text})
+            }
+            OmpFrame::Error { id, message } => {
+                serde_json::json!({"id": id, "message": message})
+            }
+        };
+        let mut object = match frame {
+            OmpFrame::Ask { .. } => serde_json::json!({"kind": "ask", "body": body}),
+            OmpFrame::Answer { .. } => serde_json::json!({"kind": "answer", "body": body}),
+            OmpFrame::ToolCall { .. } => serde_json::json!({"kind": "call", "body": body}),
+            OmpFrame::ToolResult { .. } => serde_json::json!({"kind": "result", "body": body}),
+            OmpFrame::TodoUpdate { .. } => serde_json::json!({"kind": "todo", "body": body}),
+            OmpFrame::Subagent { .. } => serde_json::json!({"kind": "sub", "body": body}),
+            OmpFrame::StreamingChunk { .. } => {
+                serde_json::json!({"kind": "chunk", "body": body})
+            }
+            OmpFrame::Thinking { .. } => serde_json::json!({"kind": "think", "body": body}),
+            OmpFrame::Error { .. } => serde_json::json!({"kind": "err", "body": body}),
+        };
+        // Round-trippable: keep the `body` object too.
+        if let Some(map) = object.as_object_mut() {
+            map.insert("body".to_string(), body);
+        }
+        object.to_string()
+    }
+
+    fn decode(&self, line: &str) -> Result<OmpFrame, CodecError> {
+        let v: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| CodecError::BadBody(format!("json: {e}")))?;
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .ok_or_else(|| CodecError::MissingField("kind".to_string()))?;
+        let body = v
+            .get("body")
+            .ok_or_else(|| CodecError::MissingField("body".to_string()))?;
+        let id = body
+            .get("id")
+            .and_then(|i| i.as_str())
+            .ok_or_else(|| CodecError::MissingField("id".to_string()))?
+            .to_string();
+        match kind {
+            "ask" => Ok(OmpFrame::Ask {
+                id,
+                text: body
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            "answer" => Ok(OmpFrame::Answer {
+                id,
+                text: body
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            "call" => {
+                let tool = body
+                    .get("tool")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let mut args = HashMap::new();
+                if let Some(map) = body.get("args").and_then(|a| a.as_object()) {
+                    for (k, val) in map {
+                        if let Some(s) = val.as_str() {
+                            args.insert(k.clone(), s.to_string());
+                        }
+                    }
+                }
+                Ok(OmpFrame::ToolCall { id, tool, args })
+            }
+            "result" => Ok(OmpFrame::ToolResult {
+                id,
+                output: body
+                    .get("output")
+                    .and_then(|o| o.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            "todo" => Ok(OmpFrame::TodoUpdate {
+                id,
+                text: body
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                done: body.get("done").and_then(|d| d.as_bool()).unwrap_or(false),
+            }),
+            "sub" => Ok(OmpFrame::Subagent {
+                id,
+                task: body
+                    .get("task")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            "chunk" => Ok(OmpFrame::StreamingChunk {
+                id,
+                chunk: body
+                    .get("chunk")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                finished: body
+                    .get("finished")
+                    .and_then(|f| f.as_bool())
+                    .unwrap_or(false),
+            }),
+            "think" => Ok(OmpFrame::Thinking {
+                id,
+                text: body
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            "err" => Ok(OmpFrame::Error {
+                id,
+                message: body
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            other => Err(CodecError::UnknownKind(other.to_string())),
+        }
+    }
+}
+
+/// Build a `session.create` request frame. The OMP server replies with
+/// an `Answer` or `Error` frame carrying the same id.
+pub fn session_create(id: impl Into<String>, model: impl Into<String>) -> OmpFrame {
+    let mut args = HashMap::new();
+    args.insert("model".to_string(), model.into());
+    OmpFrame::ToolCall {
+        id: id.into(),
+        tool: "session.create".to_string(),
+        args,
+    }
+}
+
+/// Build a `session.checkpoint` request frame. The OMP server replies
+/// with an `Answer` or `Error` frame.
+pub fn session_checkpoint(id: impl Into<String>) -> OmpFrame {
+    OmpFrame::ToolCall {
+        id: id.into(),
+        tool: "session.checkpoint".to_string(),
+        args: HashMap::new(),
+    }
+}
+
+/// Build an `agent.switch` request frame (the `;a` command in m5Tui).
+pub fn session_switch(id: impl Into<String>, target: impl Into<String>) -> OmpFrame {
+    let mut args = HashMap::new();
+    args.insert("target".to_string(), target.into());
+    OmpFrame::ToolCall {
+        id: id.into(),
+        tool: "agent.switch".to_string(),
+        args,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +633,87 @@ mod tests {
         s.send(&ask).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(s.sent().len(), 1);
         assert_eq!(s.sent()[0].id(), "1");
+    }
+
+    #[test]
+    fn json_codec_tool_call_round_trip() {
+        let c = JsonCodec::new();
+        let mut args = HashMap::new();
+        args.insert("path".to_string(), "/tmp/x".to_string());
+        let f = OmpFrame::ToolCall {
+            id: "1".to_string(),
+            tool: "fs.read".to_string(),
+            args,
+        };
+        let line = c.encode(&f);
+        let decoded = c.decode(&line).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(decoded, f);
+    }
+
+    #[test]
+    fn json_codec_chunk_round_trip() {
+        let c = JsonCodec::new();
+        let f = OmpFrame::StreamingChunk {
+            id: "9".to_string(),
+            chunk: "hello world".to_string(),
+            finished: true,
+        };
+        let line = c.encode(&f);
+        assert!(line.contains("\"kind\":\"chunk\""), "line: {line}");
+        let decoded = c.decode(&line).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(decoded, f);
+    }
+
+    #[test]
+    fn json_codec_rejects_unknown_kind() {
+        let c = JsonCodec::new();
+        let r = c.decode(r#"{"kind":"fake","body":{"id":"1"}}"#);
+        assert!(matches!(r, Err(CodecError::UnknownKind(_))));
+    }
+
+    #[test]
+    fn json_codec_rejects_missing_body() {
+        let c = JsonCodec::new();
+        let r = c.decode(r#"{"kind":"ask"}"#);
+        assert!(matches!(r, Err(CodecError::MissingField(_))));
+    }
+
+    #[test]
+    fn session_create_carries_model() {
+        let f = session_create("c1", "qwen3-14b");
+        match f {
+            OmpFrame::ToolCall { id, tool, args } => {
+                assert_eq!(id, "c1");
+                assert_eq!(tool, "session.create");
+                assert_eq!(args.get("model").map(String::as_str), Some("qwen3-14b"));
+            }
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_checkpoint_is_a_tool_call() {
+        let f = session_checkpoint("cp1");
+        match f {
+            OmpFrame::ToolCall { id, tool, args } => {
+                assert_eq!(id, "cp1");
+                assert_eq!(tool, "session.checkpoint");
+                assert!(args.is_empty());
+            }
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_switch_carries_target() {
+        let f = session_switch("sw1", "edge");
+        match f {
+            OmpFrame::ToolCall { id, tool, args } => {
+                assert_eq!(id, "sw1");
+                assert_eq!(tool, "agent.switch");
+                assert_eq!(args.get("target").map(String::as_str), Some("edge"));
+            }
+            other => panic!("unexpected frame: {other:?}"),
+        }
     }
 }

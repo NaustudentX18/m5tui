@@ -200,15 +200,49 @@ impl VaultSearch for StubVaultClient {
     }
 }
 
+/// Build the system-prompt prefix for a `;continue` command. The
+/// resulting string is prepended to a fresh OMP session so the agent
+/// inherits the project's working context.
+pub fn continue_prompt(handoff: &Handoff) -> String {
+    let tags = if handoff.tags.is_empty() {
+        "no-tags".to_string()
+    } else {
+        handoff.tags.join(", ")
+    };
+    format!(
+        "Continuing project `{project}` (tags: {tags}).\n\nLast summary: {summary}\n\nWorking prompt:\n{prompt}\n",
+        project = handoff.project,
+        summary = handoff.summary,
+        prompt = handoff.agent_prompt,
+    )
+}
+
+/// Build the OMP `session.create` frame for a `;continue` command. The
+/// `id` is used by the orchestrator to correlate the reply; the
+/// `model` is the LLM identifier (e.g. `qwen3-14b`).
+pub fn continue_frame(
+    handoff: &Handoff,
+    id: impl Into<String>,
+    model: impl Into<String>,
+) -> m5tui_omp::OmpFrame {
+    let mut args = std::collections::HashMap::new();
+    args.insert("model".to_string(), model.into());
+    args.insert("system_prefix".to_string(), continue_prompt(handoff));
+    args.insert("project".to_string(), handoff.project.clone());
+    m5tui_omp::OmpFrame::ToolCall {
+        id: id.into(),
+        tool: "session.create".to_string(),
+        args,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn markdown_heading_and_bullet() {
-        let src = "# Title
-- item one
-plain line";
+        let src = "# Title\n- item one\nplain line";
         let lines = render_markdown(src);
         assert_eq!(lines[0].style, LineStyle::Heading);
         assert_eq!(lines[0].text, "Title");
@@ -248,5 +282,39 @@ plain line";
         let v = StubVaultClient::new();
         let hits = v.query("anything").unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn continue_prompt_includes_project_and_summary() {
+        let h = InMemoryStore::with_samples()
+            .get("m5Tui")
+            .cloned()
+            .unwrap_or_else(|| panic!("sample missing"));
+        let prompt = continue_prompt(&h);
+        assert!(prompt.contains("m5Tui"));
+        assert!(prompt.contains("M2 theme engine shipped."));
+        assert!(prompt.contains("rust"));
+    }
+
+    #[test]
+    fn continue_frame_is_session_create() {
+        let h = InMemoryStore::with_samples()
+            .get("advdeck-bridge")
+            .cloned()
+            .unwrap_or_else(|| panic!("sample missing"));
+        let f = continue_frame(&h, "c1", "qwen3-14b");
+        match f {
+            m5tui_omp::OmpFrame::ToolCall { id, tool, args } => {
+                assert_eq!(id, "c1");
+                assert_eq!(tool, "session.create");
+                assert_eq!(args.get("model").map(String::as_str), Some("qwen3-14b"));
+                assert_eq!(
+                    args.get("project").map(String::as_str),
+                    Some("advdeck-bridge")
+                );
+                assert!(args.contains_key("system_prefix"));
+            }
+            other => panic!("unexpected frame: {other:?}"),
+        }
     }
 }

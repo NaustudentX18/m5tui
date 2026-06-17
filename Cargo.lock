@@ -1165,6 +1165,9 @@ dependencies = [
 [[package]]
 name = "m5tui-handoff"
 version = "1.0.0"
+dependencies = [
+ "m5tui-omp",
+]
 
 [[package]]
 name = "m5tui-market"

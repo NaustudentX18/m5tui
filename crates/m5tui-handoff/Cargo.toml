@@ -12,3 +12,4 @@ description = "Handoff viewer + vault search for m5Tui."
 workspace = true
 
 [dependencies]
+m5tui-omp = { path = "../m5tui-omp" }
