@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - README.md and ROADMAP.md now explicitly distinguish structural completion (trait stubs, tests, CI) from functional completion (real hardware/network integration). Stub-to-real work begins.
 
+## [1.4.0] - 2026-06-17 — Theme editor save, doctor report, VU meter, voice playback
+
+### Added
+- `m5tui-status` crate (new lib content): `BatteryStatus`, `WifiStatus`, `TailscaleStatus`, `ServerHealth`, `OmpPing`, `DiskUsage`, `Uptime` readings with healthy/warn/fail thresholds. `DoctorSnapshot::render_markdown()` produces a self-contained doctor report; `report_filename()` names the file.
+- `m5tui-handoff`: `parse_hit_jsonl` / `parse_hits_jsonl` for `obsidian-memory` output. `Hit::display_line()` formats a single 40-col line. `SearchHistory` with `to_jsonl` / `load_jsonl` round-trip and silent-drop on corrupt lines.
+- `m5tui-voice`: `PlaybackRequest` (once / looped / at tick) and `BootSound` (Boot / Click / Arp / Silent) with asset path and fallback frequency.
+- `m5tui-core`: `widgets/vu.rs` — VU meter (10-cell bar + peak marker) for the cockpit bottom bar. `bar_string()` is the pure formatter; `draw()` mutates a `Frame` using `theme.palette.{ok,accent,err,dim}`.
+- `m5tui-core`: `KeyAction::ForkDraftTheme` / `CommitDraftTheme` / `DiscardDraftTheme` wire the theme editor to the persist layer via `Outgoing::SaveTheme(Box<Theme>)`. `AppState` gains `theme_draft`, `theme_menu_index`, `theme_draft_palette` fields.
+
+## [1.3.0] - 2026-06-17 — M3-M6 modal overlays wired to keymap + reducer
+
+### Added
+- 9 new `KeyAction` variants: `OpenProfilePicker`, `OpenBook`, `OpenVoice`, `OpenFirstBoot`, `OpenSettings`, `RunDoctor`, `OpenHandoff`, `OpenMemory`, `SaveMemo`.
+- 8 matching `Outgoing` side-effect variants plus `PickProfile` and `RunSpell` for picker results.
+- 8 new `Mode` variants and matching themed placeholder renderers in `widgets/overlay.rs` (profile picker, book, voice, first-boot wizard, settings, doctor, handoff, memory).
+- `keymap::parse_chord()` binds `;p` profile picker, `;b` book, `;v` voice, `;n` first-boot, `;s` settings, `;D` doctor, `;h` handoff, `;m` memory, `;w` save memo.
+
+## [1.2.0] - 2026-06-17 — OMP JSON codec, handoff ;continue
+
+### Added
+- `m5tui-omp`: `JsonCodec` (serde_json, kind/body wire format) round-trippable for all 9 frame kinds.
+- `m5tui-omp`: `session_create`, `session_checkpoint`, `session_switch` frame builders.
+- `m5tui-handoff`: `continue_prompt` + `continue_frame` helpers wire handoff metadata into an OMP `session.create` frame with `system_prefix` and `project`.
+
+## [1.1.0] - 2026-06-17 — Stub-to-real wave 1
+
+### Added
+- `m5tui-persist`: `Driver` trait + `FsDriver` + `MemoryDriver`; atomic write via temp+rename; JSONL append with 512KB rotation; versioned `Migration` runner.
+- `m5tui-profile`: YAML loader via `serde_yaml`; `ProfileRegistry` trait; `FileRegistry` mtime hot-reload; `InMemoryRegistry`; `resolve_proxy_jump` chain.
+- `m5tui-market`: `ureq` HTTPS fetch; JSON catalog parser; offline cache at `market/catalog.json`; install + publish.
+- `m5tui-voice`: `cpal` `AudioIn`/`AudioOut` under `host-audio` feature; WAV encoder/decoder; PTT state machine; `VoiceInbox`.
+- `m5tui-device`: trait surface for `Display`/`Keyboard`/`Imu`/`AudioIn`/`AudioOut`/`Storage` + `HostDevice` implementation; `device` feature flag reserved for `esp-idf`.
 
 ## [0.1.0] - 2026-06-15 — M0 Foundation
 

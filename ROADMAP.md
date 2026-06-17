@@ -3,8 +3,8 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 v1.0.0 structurally shipped — 2026-06-16
-**Last update:** 2026-06-16 (M3–M6 + v1.0 trait stubs landed on master)
+**Current status:** 🟢 v1.4.0 stub-to-real wave 4 — 2026-06-17
+**Last update:** 2026-06-17 (M3–M6 modal wiring, doctor, VU meter, theme draft save, voice playback, vault JSONL)
 ---
 
 ## Progress
@@ -13,20 +13,18 @@
 M0  ████████████  Foundation       ✅ DONE
 M1  ████████████  Cockpit shell    ✅ DONE
 M2  ████████████  Theme engine     ✅ DONE
-M3  ████████████  SSH + profiles   STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-M4  ████████████  OMP integration  STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-M5  ████████████  Voice / PTT      STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-M5a ████████████  Book of Commands STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-M5b ████████████  Community Market STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-M6  ████████████  Handoff + vault  STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
-v1  ████████████  v1.0             STRUCTURAL ✅ / FUNCTIONAL 🟡
+M3  ████████████  SSH + profiles   STRUCTURAL ✅ / FUNCTIONAL 🟡 (real russh + known_hosts still TODO)
+M4  ████████████  OMP integration  MOSTLY ✅ / FUNCTIONAL 🟡 (JsonCodec + session.create done; live rpc pipe TODO)
+M5  ████████████  Voice / PTT      STRUCTURAL ✅ / FUNCTIONAL 🟡 (host cpal done; device esp-i2s TODO)
+M5a ████████████  Book of Commands ✅ Author mode + prompt rendering + template expansion done
+M5b ████████████  Community Market STRUCTURAL ✅ / FUNCTIONAL 🟡 (HTTPS catalog done; live preview TODO)
+M6  ████████████  Handoff + vault  ✅ Vault JSONL + ;continue done; live obsidian-memory TODO
+v1  ████████████  v1.0             v1.4 — host-testable layer shipped; real hardware/network remaining
 ```
 
-(11 of 11 milestones structurally done — M0–M2 are functionally done; M3–M6 + v1.0 have trait contracts and tests but still need real hardware/network integration.)
+(11 of 11 milestones structurally done. M0–M2, M4 codec, M5a, M6 vault, v1.4 are functionally done on the host side. M3 russh, M4 live rpc, M5 device audio, M5b live preview, M6 obsidian-memory remain as operator-side work.)
 
 > **Note:** "Structural ✅" means the crate, trait, unit tests, and CI wiring exist. "Functional 🟡" means no real SSH/Tailscale connection, no real `omp --mode rpc` pipe, no I2S audio/SD-card drivers, no live HTTPS market backend, and no real vault search over SSH. That operator-side integration is the remaining work.
-
-(Previously all 11 were labelled "DONE"; the labels were updated to keep the roadmap honest.)
 
 ---
 
