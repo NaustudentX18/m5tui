@@ -14,7 +14,7 @@ workspace = true
 [dependencies]
 m5tui-profile = { path = "../m5tui-profile" }
 m5tui-persist = { path = "../m5tui-persist" }
-russh = { version = "=0.54.0", features = ["async-trait"] }
+russh = { version = "=0.60.3", features = ["async-trait"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "time", "macros", "process"] }
 async-trait = "0.1.89"
 thiserror = "2.0.18"
