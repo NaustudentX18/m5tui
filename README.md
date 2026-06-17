@@ -1,6 +1,6 @@
 # m5Tui
 
-> **m5Tui v1.13.0 — stub-to-real wave 12: book registry, full Markdown renderer, OMP event widgets.** M0–M2 are functionally done; M3–M6 are now real (RusshClient, JsonCodec, host audio, live preview, vault JSONL, OMP event widgets, profile/book picker UIs, book YAML loader with hot-reload) on the host side. M3/M4/M5/M5b still need the ESP toolchain + Pages site to talk to real hardware/network.
+> **m5Tui v1.14.0 — Settings UI real (interactive overlay).** The settings overlay (`;s`) is now a fully interactive reducer-driven screen with a `>` cursor marker, j/k cursor navigation, `-`/`+` brightness adjust, and space/enter to toggle sound / cycle IMU wake. 516 tests green across 13 crates (+31 vs v1.13). v1.13 added the book registry + Markdown renderer + OMP widgets; v1.14 closes out the last stub-to-real target on PLAN.md (68/68 done).
 
 ## What is m5Tui?
 
@@ -27,7 +27,7 @@ it understands agents, voice, and the device.
 
 ## Status
 
-🟢 **v1.13.0 — 2026-06-17** — Stub-to-real wave 12: `m5tui-book` `FileRegistry` + `load_book_dir` with hot-reload, full `m5tui-handoff` Markdown renderer + `InMemoryVaultClient`, `m5tui-core` OMP event widgets + profile/book picker UIs. 485 tests green across 13 crates (+41 vs v1.12). v1.12 added the boot screen + about + log viewer overlays; v1.11 added real device drivers and the market GitHub Pages backend. See `CHANGELOG.md` and `ROADMAP.md`.
+🟢 **v1.14.0 — 2026-06-17** — Settings UI real (interactive overlay): `ImuWake` enum + 5 new `KeyAction::Settings*` variants + reducer arms for cursor / brightness / sound / imu-wake. `render_settings` renders dynamic values with a `>` cursor marker. 516 tests green across 13 crates (+31 vs v1.13). PLAN.md: 67/68 → **68/68** done — the last stub-to-real target. v1.13 added book FileRegistry + Markdown renderer + OMP widgets; v1.12 added the boot screen + about + log viewer overlays; v1.11 added real device drivers and the market GitHub Pages backend. See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## What's not done yet
 
@@ -86,7 +86,7 @@ unify them.
 
 **Owner:** Forest
 **Drafted:** 2026-06-15
-**Last sync:** 2026-06-17 (v1.13.0 book FileRegistry + Markdown renderer + OMP event widgets)
+**Last sync:** 2026-06-17 (v1.14.0 Settings UI real — interactive overlay)
 **Target device:** M5Stack Cardputer-Adv (K132-Adv, ESP32-S3)
 **Target server:** `aiserver-1` (Pi 5, Tailscale 100.126.207.73)
 **License:** MIT

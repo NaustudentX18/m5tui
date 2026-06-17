@@ -1,9 +1,22 @@
-# Changelog
+## [1.14.0] - 2026-06-17 — Settings UI real (interactive overlay)
 
-All notable changes to m5Tui will be documented in this file.
+### Added
+- `m5tui-core::app::ImuWake` enum (`Off` / `Shake` / `Tilt`) with `next()` / `prev()` / `label()`. `Default` derived for `Shake`.
+- `m5tui-core::app::AppState` — 6 new fields for the settings overlay: `settings_cursor: usize` (defaults 0), `settings_brightness: u8` (defaults 77), `settings_sound: bool` (defaults true), `settings_imu_wake: ImuWake` (defaults Shake), `settings_wifi_ssid: String` (defaults `"aiserver-5g"`), `settings_tailscale_status: String` (defaults `"up (100.127.x.x)"`).
+- `m5tui-core::event::KeyAction::{SettingsUp, SettingsDown, SettingsLeft, SettingsRight, SettingsToggle}` — five new action variants for in-overlay navigation.
+- `m5tui-core::app::{SETTINGS_ROWS, BRIGHTNESS_STEP, settings_adjust, settings_toggle}` — helpers used by the reducer. `SETTINGS_ROWS = 5` (brightness / wifi / tailscale / sound / imu_wake), `BRIGHTNESS_STEP = 5`.
+- `m5tui-core::app::step` — new arms for `SettingsUp/Down/Left/Right/Toggle`, plus the existing `Up`/`Down` arms now also drive the settings cursor when `mode == Mode::Settings`. The `Enter` arm dispatches to `settings_toggle` while the settings overlay is open. All five new actions are no-ops outside `Mode::Settings`.
+- `m5tui-core::keymap::keymap_for_mode` — new `Mode::Settings` arm: `j`/`k` → `SettingsDown/Up`, `-`/`+` → `SettingsLeft/Right`, space → `SettingsToggle`. `j`/`k` no-op outside the settings overlay (no longer fed as `Char('j')` / `Char('k')` to the prompt).
+- `m5tui-core::widgets::overlay::render_settings` — replaces the static 5-line placeholder with a fully dynamic renderer. Five rows (brightness, wifi, tailscale, sound, imu wake) sourced from `AppState`. The currently-selected row gets a `>` cursor marker in the accent colour. Hint footer reads `j/k move  -/+ adj  sp toggle`.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Changed
+- Workspace: 485 → **516 tests** (+31). All gates green: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (516 passed, 41 suites).
+- PLAN.md todo delta: 67/68 → **68/68** done. The newly completed item: Settings UI is now interactive (cursor + value adjust + sound toggle + imu-wake cycle) instead of a static placeholder.
+
+### Known limitations
+- `SettingsLeft` / `SettingsRight` on the brightness row saturate at 0 / 100. Long-press adjustment (auto-repeat) is operator-side work once the firmware has a real key-repeat driver.
+- `settings_wifi_ssid` and `settings_tailscale_status` are stored on `AppState` but only the host build currently refreshes them; on-device they will be driven by `m5tui-status` (existing crate) once the ESP toolchain is installed.
+- The cursor marker renders the literal byte `>` in the glyph atlas; visually it appears as the same accent colour, but on devices that need a Unicode arrow the glyph can be swapped without touching the reducer.
 
 ## [1.13.0] - 2026-06-17 — Stub-to-real wave 12: book registry, Markdown renderer, OMP widgets
 
@@ -307,3 +320,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.11.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.11.0
 [1.12.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.12.0
 [1.13.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.13.0
+[1.14.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.14.0

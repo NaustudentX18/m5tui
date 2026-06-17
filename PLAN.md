@@ -170,8 +170,7 @@
     - Save to `/sd/m5tui/themes/<name>.yaml`.
     - Export YAML to stdout.
 
-22. **Settings UI.**
-    - `;settings` screen for brightness, Wi-Fi, Tailscale, sound, IMU.
+22. **Settings UI.** ✅ DONE v1.14.0 — interactive overlay with `>` cursor marker, j/k cursor nav, `-`/`+` brightness adjust, space/enter to toggle sound / cycle IMU wake (`Off`/`Shake`/`Tilt`). Read-only rows (wifi SSID, tailscale status) displayed from `AppState`. Renderer: `crates/m5tui-core/src/widgets/overlay.rs::render_settings`. Reducer arms: `SettingsUp/Down/Left/Right/Toggle`.
 
 23. **About + log viewer.**
     - `;?` from help opens about screen.

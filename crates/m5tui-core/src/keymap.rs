@@ -102,6 +102,9 @@ pub fn parse_chord(prev: Option<char>, new: char) -> Option<KeyAction> {
 ///   - `f` -> `LogToggleFollow` (toggle follow-tail)
 /// - `Mode::ProfilePicker`: `j`/`k` move the cursor down/up.
 /// - `Mode::Book`: `j`/`k` move the cursor down/up.
+/// - `Mode::Settings`: `j`/`k` move the cursor down/up; `-`/`+` adjust
+///   the value under the cursor (brightness step / imu-wake cycle);
+///   ` ` (space) toggles sound / cycles imu-wake.
 pub fn keymap_for_mode(mode: Mode, c: char) -> Option<KeyAction> {
     match mode {
         Mode::LogViewer => match c {
@@ -122,10 +125,17 @@ pub fn keymap_for_mode(mode: Mode, c: char) -> Option<KeyAction> {
             'k' => Some(KeyAction::BookUp),
             _ => None,
         },
+        Mode::Settings => match c {
+            'j' => Some(KeyAction::SettingsDown),
+            'k' => Some(KeyAction::SettingsUp),
+            '-' => Some(KeyAction::SettingsLeft),
+            '+' => Some(KeyAction::SettingsRight),
+            ' ' => Some(KeyAction::SettingsToggle),
+            _ => None,
+        },
         _ => None,
     }
 }
-
 /// State-aware chord parser. Falls back to `parse_chord` for the
 /// state-less path, then layers on mode-specific overrides:
 ///
@@ -344,5 +354,50 @@ mod tests {
             parse_chord_with_mode(Some(';'), '?', Mode::Cockpit),
             Some(KeyAction::Help),
         );
+    }
+    #[test]
+    fn settings_mode_j_is_down() {
+        assert_eq!(
+            keymap_for_mode(Mode::Settings, 'j'),
+            Some(KeyAction::SettingsDown)
+        );
+    }
+
+    #[test]
+    fn settings_mode_k_is_up() {
+        assert_eq!(
+            keymap_for_mode(Mode::Settings, 'k'),
+            Some(KeyAction::SettingsUp)
+        );
+    }
+
+    #[test]
+    fn settings_mode_plus_is_right() {
+        assert_eq!(
+            keymap_for_mode(Mode::Settings, '+'),
+            Some(KeyAction::SettingsRight)
+        );
+    }
+
+    #[test]
+    fn settings_mode_minus_is_left() {
+        assert_eq!(
+            keymap_for_mode(Mode::Settings, '-'),
+            Some(KeyAction::SettingsLeft)
+        );
+    }
+
+    #[test]
+    fn settings_mode_space_is_toggle() {
+        assert_eq!(
+            keymap_for_mode(Mode::Settings, ' '),
+            Some(KeyAction::SettingsToggle)
+        );
+    }
+
+    #[test]
+    fn settings_mode_unrelated_chars_pass_through() {
+        assert_eq!(keymap_for_mode(Mode::Settings, 'a'), None);
+        assert_eq!(keymap_for_mode(Mode::Settings, '?'), None);
     }
 }

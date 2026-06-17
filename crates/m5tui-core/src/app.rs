@@ -124,6 +124,46 @@ pub struct SpellSummary {
     pub help: String,
 }
 
+/// IMU wake behaviour selected on the settings overlay. Cycled by
+/// `SettingsLeft` / `SettingsRight` when the cursor sits on the imu-wake
+/// row; `Off` means the IMU never wakes the device from sleep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImuWake {
+    Off,
+    #[default]
+    Shake,
+    Tilt,
+}
+
+impl ImuWake {
+    /// Next value in the cycle. Wraps from `Tilt` back to `Off`.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Shake,
+            Self::Shake => Self::Tilt,
+            Self::Tilt => Self::Off,
+        }
+    }
+
+    /// Previous value in the cycle. Wraps from `Off` back to `Tilt`.
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Off => Self::Tilt,
+            Self::Shake => Self::Off,
+            Self::Tilt => Self::Shake,
+        }
+    }
+
+    /// Single-word label for the settings overlay.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Shake => "shake",
+            Self::Tilt => "tilt",
+        }
+    }
+}
+
 /// A short-lived message shown in the top-right of the cockpit. Toasts
 /// expire when `clock >= until_tick`; the reducer drops them on `Tick`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +171,7 @@ pub struct Toast {
     pub text: String,
     pub until_tick: u64,
 }
+
 /// In-memory ring buffer of log lines. When the buffer fills, the
 /// oldest line is dropped on the next push. The viewer uses
 /// `scroll_offset` (0 = follow-tail / newest; 1 = one line up; etc.)
@@ -297,6 +338,24 @@ pub struct AppState {
     /// Both overlays share this field; the reducer clamps it to the
     /// active list length when navigating.
     pub picker_index: usize,
+    /// Cursor row in `Mode::Settings`. Indexes into the settings
+    /// overlay's row list (see `SETTINGS_ROWS`).
+    pub settings_cursor: usize,
+    /// LCD backlight brightness (0..=100). Edited in `Mode::Settings`
+    /// via `SettingsLeft` / `SettingsRight` on the brightness row.
+    pub settings_brightness: u8,
+    /// Whether the speaker / click sounds are enabled. Toggled in
+    /// `Mode::Settings` on the sound row.
+    pub settings_sound: bool,
+    /// IMU wake behaviour. Cycled in `Mode::Settings` on the imu-wake
+    /// row.
+    pub settings_imu_wake: ImuWake,
+    /// SSID of the currently-connected Wi-Fi network. Read-only on
+    /// the settings overlay; the framework refreshes it from the
+    /// device's wifi subsystem.
+    pub settings_wifi_ssid: String,
+    /// Tailscale status text shown on the settings overlay. Read-only.
+    pub settings_tailscale_status: String,
 }
 
 impl Default for AppState {
@@ -363,6 +422,12 @@ impl Default for AppState {
             profiles: Vec::new(),
             book_spells: Vec::new(),
             picker_index: 0,
+            settings_cursor: 0,
+            settings_brightness: 77,
+            settings_sound: true,
+            settings_imu_wake: ImuWake::default(),
+            settings_wifi_ssid: "aiserver-5g".into(),
+            settings_tailscale_status: "up (100.127.x.x)".into(),
         }
     }
 }
@@ -694,6 +759,11 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
                     selected_agent: state.selected_agent.saturating_sub(1),
                     ..state
                 }
+            } else if state.mode == Mode::Settings {
+                AppState {
+                    settings_cursor: state.settings_cursor.saturating_sub(1),
+                    ..state
+                }
             } else {
                 state
             }
@@ -710,11 +780,72 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
                     selected_agent: next,
                     ..state
                 }
+            } else if state.mode == Mode::Settings {
+                let max = settings_max_row();
+                let next = if state.settings_cursor >= max {
+                    max
+                } else {
+                    state.settings_cursor + 1
+                };
+                AppState {
+                    settings_cursor: next,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::SettingsUp => {
+            if state.mode == Mode::Settings {
+                AppState {
+                    settings_cursor: state.settings_cursor.saturating_sub(1),
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::SettingsDown => {
+            if state.mode == Mode::Settings {
+                let max = settings_max_row();
+                let next = if state.settings_cursor >= max {
+                    max
+                } else {
+                    state.settings_cursor + 1
+                };
+                AppState {
+                    settings_cursor: next,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::SettingsLeft => {
+            if state.mode == Mode::Settings {
+                settings_adjust(state, SettingsDelta::Left)
+            } else {
+                state
+            }
+        }
+        KeyAction::SettingsRight => {
+            if state.mode == Mode::Settings {
+                settings_adjust(state, SettingsDelta::Right)
+            } else {
+                state
+            }
+        }
+        KeyAction::SettingsToggle => {
+            if state.mode == Mode::Settings {
+                settings_toggle(state)
             } else {
                 state
             }
         }
         KeyAction::Enter => {
+            if state.mode == Mode::Settings {
+                return settings_toggle(state);
+            }
             // Picker overlays have their own Enter semantics. Clone
             // the active list before moving `state` into the helper.
             match state.mode {
@@ -829,6 +960,73 @@ fn picker_move(state: AppState, len: usize, delta: PickerDelta) -> AppState {
     AppState {
         picker_index: next,
         ..state
+    }
+}
+
+/// Number of rows shown on the settings overlay. Keep in sync with the
+/// ordering in `widgets::overlay::render_settings` and the cursor
+/// dispatch in `settings_adjust` / `settings_toggle`.
+pub const SETTINGS_ROWS: usize = 5;
+/// Brightness step (out of 100) used by `SettingsLeft` / `SettingsRight`
+/// on the brightness row.
+pub const BRIGHTNESS_STEP: i16 = 5;
+
+fn settings_max_row() -> usize {
+    SETTINGS_ROWS - 1
+}
+
+/// Direction of a value adjustment on the settings overlay.
+enum SettingsDelta {
+    Left,
+    Right,
+}
+
+/// Adjust the value under the settings cursor in `delta`. Brightness
+/// rows step by `BRIGHTNESS_STEP`; the imu-wake row cycles through the
+/// three `ImuWake` variants. Read-only rows (wifi, tailscale) ignore the
+/// keypress.
+fn settings_adjust(state: AppState, delta: SettingsDelta) -> AppState {
+    match state.settings_cursor {
+        0 => {
+            let cur = state.settings_brightness as i16;
+            let next = match delta {
+                SettingsDelta::Left => cur.saturating_sub(BRIGHTNESS_STEP).max(0),
+                SettingsDelta::Right => cur.saturating_add(BRIGHTNESS_STEP).min(100),
+            };
+            AppState {
+                settings_brightness: next as u8,
+                ..state
+            }
+        }
+        4 => {
+            let next = match delta {
+                SettingsDelta::Left => state.settings_imu_wake.prev(),
+                SettingsDelta::Right => state.settings_imu_wake.next(),
+            };
+            AppState {
+                settings_imu_wake: next,
+                ..state
+            }
+        }
+        // Read-only rows: wifi (1), tailscale (2). No-op.
+        _ => state,
+    }
+}
+
+/// Toggle or cycle the value under the settings cursor. Sound row (3)
+/// flips the bool; imu-wake row (4) cycles forward; read-only rows
+/// ignore.
+fn settings_toggle(state: AppState) -> AppState {
+    match state.settings_cursor {
+        3 => AppState {
+            settings_sound: !state.settings_sound,
+            ..state
+        },
+        4 => AppState {
+            settings_imu_wake: state.settings_imu_wake.next(),
+            ..state
+        },
+        _ => state,
     }
 }
 

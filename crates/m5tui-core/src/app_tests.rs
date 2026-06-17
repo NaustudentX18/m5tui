@@ -590,3 +590,218 @@ fn step_log_scroll_keys_ignored_outside_log_viewer() {
     assert_eq!(s2.mode, Mode::Cockpit);
     assert_eq!(s2.log_buffer.scroll_offset, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Settings overlay tests (v1.14)
+//
+// The Settings overlay is opened with `KeyAction::OpenSettings` and then
+// mutated by `SettingsUp`/`SettingsDown` (cursor), `SettingsLeft`/
+// `SettingsRight` (brightness step / imu-wake cycle), and
+// `SettingsToggle` (sound flip / imu-wake cycle forward). All five are
+// no-ops when the active mode is anything other than `Mode::Settings`.
+// ---------------------------------------------------------------------------
+
+fn open_settings() -> AppState {
+    let (s, _) = step(AppState::default(), Event::Key(KeyAction::OpenSettings));
+    assert_eq!(s.mode, Mode::Settings);
+    s
+}
+
+#[test]
+fn settings_defaults_match_spec() {
+    let s = AppState::default();
+    assert_eq!(s.settings_cursor, 0);
+    assert_eq!(s.settings_brightness, 77);
+    assert!(s.settings_sound);
+    assert_eq!(s.settings_imu_wake, ImuWake::Shake);
+    assert_eq!(s.settings_wifi_ssid, "aiserver-5g");
+    assert!(s.settings_tailscale_status.starts_with("up"));
+}
+
+#[test]
+fn settings_up_decrements_cursor_with_saturate() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsUp));
+    assert_eq!(s.settings_cursor, 0, "saturates at zero");
+    let s = AppState {
+        settings_cursor: 3,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsUp));
+    assert_eq!(s.settings_cursor, 2);
+}
+
+#[test]
+fn settings_down_increments_cursor_with_clamp() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsDown));
+    assert_eq!(s.settings_cursor, 1);
+    // 4 is the last valid row (5 rows total).
+    let s = AppState {
+        settings_cursor: 4,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsDown));
+    assert_eq!(s.settings_cursor, 4, "clamps at last row");
+}
+
+#[test]
+fn settings_left_decrements_brightness_by_step() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_brightness, 72, "77 - 5 = 72");
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_brightness, 67);
+}
+
+#[test]
+fn settings_left_brightness_saturates_at_zero() {
+    let s = AppState {
+        settings_brightness: 3,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_brightness, 0);
+}
+
+#[test]
+fn settings_right_increments_brightness_by_step() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsRight));
+    assert_eq!(s.settings_brightness, 82);
+}
+
+#[test]
+fn settings_right_brightness_saturates_at_hundred() {
+    let s = AppState {
+        settings_brightness: 98,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsRight));
+    assert_eq!(s.settings_brightness, 100);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsRight));
+    assert_eq!(s.settings_brightness, 100, "still 100");
+}
+
+#[test]
+fn settings_left_on_imu_wake_cycles_backward() {
+    let s = open_settings();
+    let s = AppState {
+        settings_cursor: 4,
+        ..s
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_imu_wake, ImuWake::Off);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_imu_wake, ImuWake::Tilt);
+}
+
+#[test]
+fn settings_right_on_imu_wake_cycles_forward() {
+    let s = AppState {
+        settings_cursor: 4,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsRight));
+    assert_eq!(s.settings_imu_wake, ImuWake::Tilt);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsRight));
+    assert_eq!(s.settings_imu_wake, ImuWake::Off);
+}
+
+#[test]
+fn settings_toggle_on_sound_flips_bool() {
+    let s = open_settings();
+    let s = AppState {
+        settings_cursor: 3,
+        ..s
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsToggle));
+    assert!(!s.settings_sound);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsToggle));
+    assert!(s.settings_sound);
+}
+
+#[test]
+fn settings_toggle_on_imu_wake_cycles_forward() {
+    let s = AppState {
+        settings_cursor: 4,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsToggle));
+    assert_eq!(s.settings_imu_wake, ImuWake::Tilt);
+}
+
+#[test]
+fn settings_toggle_on_readonly_row_is_noop() {
+    let s = AppState {
+        settings_cursor: 1,
+        ..open_settings()
+    };
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsToggle));
+    assert_eq!(s.settings_wifi_ssid, "aiserver-5g");
+    assert_eq!(s.settings_cursor, 1);
+}
+
+#[test]
+fn settings_enter_dispatches_to_toggle() {
+    let s = AppState {
+        settings_cursor: 3,
+        ..open_settings()
+    };
+    let (s, outs) = step(s, Event::Key(KeyAction::Enter));
+    assert!(!s.settings_sound);
+    // Enter should not surface a SubmitPrompt or any other side effect.
+    assert!(outs.is_empty(), "no outgoings on settings Enter: {outs:?}");
+}
+
+#[test]
+fn settings_actions_are_noops_outside_settings_mode() {
+    let s = AppState::default();
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsUp));
+    assert_eq!(s.settings_cursor, 0);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsDown));
+    assert_eq!(s.settings_cursor, 0);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsLeft));
+    assert_eq!(s.settings_brightness, 77);
+    let (s, _) = step(s, Event::Key(KeyAction::SettingsToggle));
+    assert!(s.settings_sound);
+}
+
+#[test]
+fn settings_esc_closes_overlay_and_returns_to_cockpit() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::Esc));
+    assert_eq!(s.mode, Mode::Cockpit);
+    // The settings cursor / values are preserved on close.
+    assert_eq!(s.settings_brightness, 77);
+}
+
+#[test]
+fn up_and_down_drive_settings_cursor_when_settings_open() {
+    let s = open_settings();
+    let (s, _) = step(s, Event::Key(KeyAction::Down));
+    assert_eq!(s.settings_cursor, 1);
+    let (s, _) = step(s, Event::Key(KeyAction::Up));
+    assert_eq!(s.settings_cursor, 0);
+}
+
+#[test]
+fn imu_wake_next_cycles_through_variants() {
+    assert_eq!(ImuWake::Off.next(), ImuWake::Shake);
+    assert_eq!(ImuWake::Shake.next(), ImuWake::Tilt);
+    assert_eq!(ImuWake::Tilt.next(), ImuWake::Off);
+}
+
+#[test]
+fn imu_wake_prev_reverses_next() {
+    for w in [ImuWake::Off, ImuWake::Shake, ImuWake::Tilt] {
+        assert_eq!(w.prev().next(), w);
+    }
+}
+
+#[test]
+fn imu_wake_labels_are_single_words() {
+    assert_eq!(ImuWake::Off.label(), "off");
+    assert_eq!(ImuWake::Shake.label(), "shake");
+    assert_eq!(ImuWake::Tilt.label(), "tilt");
+}

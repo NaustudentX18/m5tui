@@ -114,15 +114,49 @@ pub fn render_first_boot(frame: &mut Frame, _state: &AppState, theme: &Theme) {
 }
 
 /// Device settings — brightness, Wi-Fi, Tailscale, sound, IMU.
-pub fn render_settings(frame: &mut Frame, _state: &AppState, theme: &Theme) {
+/// Renders five rows sourced from `AppState`: brightness (mutable),
+/// wifi SSID (read-only), tailscale status (read-only), sound
+/// (toggleable), and IMU wake (cyclable). The currently-selected row
+/// is marked with a `>` cursor in the accent colour.
+pub fn render_settings(frame: &mut Frame, state: &AppState, theme: &Theme) {
     clear(frame, theme.palette.bg.0);
     draw_title(frame, "m5Tui -- SETTINGS", theme);
-    draw_body_line(frame, 2, "brightness:  77/100", theme);
-    draw_body_line(frame, 3, "wifi:        aiserver-5g", theme);
-    draw_body_line(frame, 4, "tailscale:   up (100.127.x.x)", theme);
-    draw_body_line(frame, 5, "sound:       on", theme);
-    draw_body_line(frame, 6, "imu wake:    shake", theme);
-    draw_hint(frame, "esc close", theme);
+    let cursor_fg = theme.palette.accent.0;
+    let body_fg = theme.palette.fg.0;
+    let bg = theme.palette.bg.0;
+    let mut row_start = |row: usize, label: &str, value: &str, cursor: bool| {
+        if cursor {
+            write_str_colored(frame, row, 0, ">", cursor_fg, bg);
+        } else {
+            write_str_colored(frame, row, 0, " ", body_fg, bg);
+        }
+        write_str_colored(frame, row, 2, label, body_fg, bg);
+        write_str_colored(frame, row, 13, value, body_fg, bg);
+    };
+    let cur = state.settings_cursor;
+    row_start(
+        2,
+        "brightness:",
+        &format!("{:>3}/100", state.settings_brightness),
+        cur == 0,
+    );
+    row_start(3, "wifi:", &state.settings_wifi_ssid, cur == 1);
+    row_start(4, "tailscale:", &state.settings_tailscale_status, cur == 2);
+    row_start(
+        5,
+        "sound:",
+        if state.settings_sound { "on" } else { "off" },
+        cur == 3,
+    );
+    row_start(6, "imu wake:", state.settings_imu_wake.label(), cur == 4);
+    write_str_colored(
+        frame,
+        ROWS - 1,
+        0,
+        "j/k move  -/+ adj  sp toggle",
+        theme.palette.dim.0,
+        bg,
+    );
 }
 
 /// Doctor scoreboard — battery, Wi-Fi, server health, uptime, OMP ping.
@@ -303,6 +337,107 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn settings_renders_dynamic_brightness_value() {
+        let mut f = frame();
+        let s = AppState {
+            settings_brightness: 42,
+            ..AppState::default()
+        };
+        render_settings(&mut f, &s, &theme());
+        let body = body_of(&f);
+        assert!(
+            body.contains("42/100"),
+            "missing dynamic brightness: {body}"
+        );
+    }
+
+    #[test]
+    fn settings_renders_dynamic_sound_state() {
+        let mut f = frame();
+        let s = AppState {
+            settings_sound: false,
+            ..AppState::default()
+        };
+        render_settings(&mut f, &s, &theme());
+        let body = body_of(&f);
+        assert!(body.contains("sound:"), "sound label missing: {body}");
+        assert!(body.contains("off"), "sound should be off: {body}");
+    }
+
+    #[test]
+    fn settings_renders_dynamic_imu_wake_label() {
+        let mut f = frame();
+        let s = AppState {
+            settings_imu_wake: crate::app::ImuWake::Tilt,
+            ..AppState::default()
+        };
+        render_settings(&mut f, &s, &theme());
+        let body = body_of(&f);
+        assert!(
+            body.contains("imu wake:") && body.contains("tilt"),
+            "imu wake label mismatch: {body}"
+        );
+    }
+
+    #[test]
+    fn settings_renders_dynamic_wifi_ssid() {
+        let mut f = frame();
+        let s = AppState {
+            settings_wifi_ssid: "my-wifi".into(),
+            ..AppState::default()
+        };
+        render_settings(&mut f, &s, &theme());
+        let body = body_of(&f);
+        assert!(body.contains("my-wifi"), "missing wifi ssid: {body}");
+    }
+
+    #[test]
+    fn settings_renders_cursor_marker_on_selected_row() {
+        // The cursor marker `>` lives on the cursor row in the accent
+        // colour. We assert it appears on row 2 (cursor=0/brightness)
+        // by default, and shifts to row 3 when the cursor moves down.
+        let mut f = frame();
+        render_settings(&mut f, &state(), &theme());
+        let row2: String = (0..COLS).map(|c| f.cells[2][c].glyph as char).collect();
+        assert!(
+            row2.starts_with('>'),
+            "row 2 should start with cursor: {row2:?}"
+        );
+
+        let mut f = frame();
+        let s = AppState {
+            settings_cursor: 1,
+            ..AppState::default()
+        };
+        render_settings(&mut f, &s, &theme());
+        let row3: String = (0..COLS).map(|c| f.cells[3][c].glyph as char).collect();
+        assert!(
+            row3.starts_with('>'),
+            "row 3 should start with cursor: {row3:?}"
+        );
+        let row2: String = (0..COLS).map(|c| f.cells[2][c].glyph as char).collect();
+        assert!(
+            !row2.starts_with('>'),
+            "row 2 should no longer have cursor: {row2:?}"
+        );
+    }
+
+    #[test]
+    fn settings_hint_includes_keymap_hints() {
+        let mut f = frame();
+        render_settings(&mut f, &state(), &theme());
+        let last_row: String = (0..COLS)
+            .map(|c| f.cells[ROWS - 1][c].glyph as char)
+            .collect();
+        for hint in ["move", "adj", "toggle"] {
+            assert!(
+                last_row.contains(hint),
+                "hint missing '{hint}': {last_row:?}"
+            );
         }
     }
 }

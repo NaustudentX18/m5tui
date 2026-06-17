@@ -3,8 +3,8 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 v1.13.0 stub-to-real wave 12 — 2026-06-17
-**Last update:** 2026-06-17 (book FileRegistry + hot-reload, full Markdown renderer + InMemoryVaultClient, OMP event widgets, profile/book picker UIs)
+**Current status:** 🟢 v1.14.0 Settings UI real (interactive overlay) — 2026-06-17
+**Last update:** 2026-06-17 (Settings UI real — `ImuWake` enum, 5 new `KeyAction::Settings*` variants, reducer arms for cursor / brightness / sound / imu-wake; `render_settings` shows dynamic values with `>` cursor marker; PLAN.md 67/68 → 68/68 done; 516 tests)
 ---
 
 ## Progress
@@ -19,7 +19,7 @@ M5  ████████████  Voice / PTT      HOST 🟢 (cpal + WAV
 M5a ████████████  Book of Commands ✅ Author mode + prompt rendering + template expansion done
 M5b ████████████  Community Market BACKEND 🟢 (ureq + offline cache + GitHub Pages HTML + publish script done); Pages site + B2/R2 operator work
 M6  ████████████  Handoff + vault  HOST 🟢 (vault JSONL + ;continue done); SFTP fetch + live obsidian-memory operator work
-v1  ████████████  v1.0 → v1.13.0   v1.13.0 shipped — 485 tests, 13 crates; only real hardware/network + Pages site remain
+v1  ████████████  v1.0 → v1.14.0   v1.14.0 shipped — 516 tests, 13 crates; PLAN.md 68/68 done; only real hardware/network + Pages site remain
 ```
 
 (11 of 11 milestones structurally done. 10 of 11 are now functionally done on the host side; the remaining work is device wiring (ESP toolchain), Pages site + B2/R2, and live network targets.)

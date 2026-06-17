@@ -82,6 +82,21 @@ pub enum KeyAction {
     CommitDraftTheme,
     /// Discard the current draft theme.
     DiscardDraftTheme,
+    /// Move the cursor up in `Mode::Settings`. Triggered by `k` /
+    /// `Up` while the settings overlay is open.
+    SettingsUp,
+    /// Move the cursor down in `Mode::Settings`. Triggered by `j` /
+    /// `Down` while the settings overlay is open.
+    SettingsDown,
+    /// Adjust the value under the cursor leftward in `Mode::Settings`
+    /// (brightness down, imu-wake cycle backward). Triggered by `-`.
+    SettingsLeft,
+    /// Adjust the value under the cursor rightward in `Mode::Settings`
+    /// (brightness up, imu-wake cycle forward). Triggered by `+`.
+    SettingsRight,
+    /// Toggle the value under the cursor in `Mode::Settings` (sound
+    /// on/off). Triggered by ` ` (space) or `Enter` on a boolean row.
+    SettingsToggle,
     Esc,
     /// Submit the prompt or confirm a selection.
     Enter,
