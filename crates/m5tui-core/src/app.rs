@@ -6,6 +6,7 @@
 //! framework must perform.
 
 use crate::event::{Event, Focus, KeyAction, Outgoing};
+use std::collections::VecDeque;
 
 /// Which top-level screen the user is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,17 @@ pub enum Mode {
     Handoff,
     /// Memory/vault search modal — query and JSONL hits.
     Memory,
+    /// About/version overlay — build info, themes, keybind summary.
+    /// Triggered by the `;A` chord (or `;?` from inside the help
+    /// overlay).
+    About,
+    /// Log viewer overlay — scrollable in-memory log buffer with
+    /// follow-tail mode. Triggered by the `;L` chord.
+    LogViewer,
+    /// First-boot boot screen — animated ASCII logo + progress bar,
+    /// skippable with any key. The reducer enters `Cockpit` when the
+    /// user sends `Outgoing::SkipBoot`.
+    Boot,
 }
 
 /// A mock agent shown in the cockpit's left pane. Real agents arrive in
@@ -66,6 +78,116 @@ pub struct Toast {
     pub text: String,
     pub until_tick: u64,
 }
+/// In-memory ring buffer of log lines. When the buffer fills, the
+/// oldest line is dropped on the next push. The viewer uses
+/// `scroll_offset` (0 = follow-tail / newest; 1 = one line up; etc.)
+/// and `tail_mode` (auto-reset to bottom on push) to navigate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogBuffer {
+    /// Stored lines, oldest-first.
+    pub(crate) lines: VecDeque<String>,
+    /// Maximum number of lines retained.
+    pub(crate) max_lines: usize,
+    /// Distance from the newest line. 0 = bottom; 1 = one line older; etc.
+    pub(crate) scroll_offset: usize,
+    /// When `true`, `push` resets `scroll_offset` to 0 (auto-scroll).
+    pub(crate) tail_mode: bool,
+}
+
+impl LogBuffer {
+    /// Build a buffer that retains up to `max_lines` entries. The new
+    /// buffer is empty and starts in follow-tail mode.
+    pub fn new(max_lines: usize) -> Self {
+        Self {
+            lines: VecDeque::new(),
+            max_lines: max_lines.max(1),
+            scroll_offset: 0,
+            tail_mode: true,
+        }
+    }
+
+    /// Append `line` to the buffer. When the buffer is full, the oldest
+    /// line is dropped. If `tail_mode` is `true`, `scroll_offset` is
+    /// reset to 0 so the viewer continues to follow the tail.
+    pub fn push(&mut self, line: String) {
+        if self.lines.len() == self.max_lines {
+            self.lines.pop_front();
+            // Keep `scroll_offset` honest when the head moves under us.
+            if self.scroll_offset > 0 {
+                self.scroll_offset = self.scroll_offset.saturating_sub(1);
+            }
+        }
+        self.lines.push_back(line);
+        if self.tail_mode {
+            self.scroll_offset = 0;
+        }
+    }
+
+    /// Iterate the buffered lines from oldest to newest.
+    pub fn lines(&self) -> impl Iterator<Item = &str> {
+        self.lines.iter().map(String::as_str)
+    }
+
+    /// Move one line older (closer to the head). Saturates at the
+    /// oldest buffered line. Disables follow-tail when called.
+    pub fn scroll_up(&mut self) {
+        let max = self.lines.len().saturating_sub(1);
+        if self.scroll_offset < max {
+            self.scroll_offset += 1;
+        }
+        self.tail_mode = false;
+    }
+
+    /// Move one line newer (closer to the tail). Saturates at 0.
+    /// Re-enables follow-tail when the viewer reaches the bottom.
+    pub fn scroll_down(&mut self) {
+        if self.scroll_offset > 0 {
+            self.scroll_offset -= 1;
+        }
+        if self.scroll_offset == 0 {
+            self.tail_mode = true;
+        }
+    }
+
+    /// Jump to the oldest buffered line and disable follow-tail.
+    pub fn scroll_top(&mut self) {
+        self.scroll_offset = self.lines.len().saturating_sub(1);
+        self.tail_mode = false;
+    }
+
+    /// Jump back to the newest line and re-enable follow-tail.
+    pub fn scroll_bottom(&mut self) {
+        self.scroll_offset = 0;
+        self.tail_mode = true;
+    }
+
+    /// Toggle the follow-tail flag. When toggled off, the current
+    /// `scroll_offset` is preserved.
+    pub fn toggle_follow(&mut self) {
+        self.tail_mode = !self.tail_mode;
+        if self.tail_mode {
+            self.scroll_offset = 0;
+        }
+    }
+
+    /// Number of lines currently buffered.
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Whether the buffer holds zero lines.
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+}
+
+impl Default for LogBuffer {
+    fn default() -> Self {
+        // 200 lines ≈ 6 KB of UTF-8 text; fits well in the on-device
+        // heap while staying useful for short debugging sessions.
+        Self::new(200)
+    }
+}
 
 /// The full application state. The reducer is the only writer; the
 /// renderer is a pure read.
@@ -96,6 +218,8 @@ pub struct AppState {
     /// shows for live preview. Kept as a separate field so the
     /// renderer can read it without cloning the whole theme.
     pub theme_draft_palette: Option<m5tui_themes::ThemePalette>,
+    /// In-memory log buffer shown by the `Mode::LogViewer` overlay.
+    pub log_buffer: LogBuffer,
 }
 
 impl Default for AppState {
@@ -150,9 +274,23 @@ impl Default for AppState {
             palette_selected: 0,
             clock: 0,
             toast: None,
+            log_buffer: LogBuffer::default(),
             theme_draft: None,
             theme_menu_index: 0,
             theme_draft_palette: None,
+        }
+    }
+}
+
+impl AppState {
+    /// Construct the state the framework starts the host binary in:
+    /// `Mode::Boot` so the boot screen renders before the user sees the
+    /// cockpit. The default (`AppState::default()`) is `Mode::Cockpit`,
+    /// which is what every reducer unit test wants.
+    pub fn booting() -> Self {
+        Self {
+            mode: Mode::Boot,
+            ..Self::default()
         }
     }
 }
@@ -286,6 +424,16 @@ fn discard_draft_theme(state: AppState) -> AppState {
 }
 
 fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> AppState {
+    // While the boot screen is up, any key skips it. This must run
+    // before the per-action match so chords like `;/` or arrow keys
+    // also abort the boot rather than being silently absorbed.
+    if state.mode == Mode::Boot {
+        out.push(Outgoing::SkipBoot);
+        return AppState {
+            mode: Mode::Cockpit,
+            ..state
+        };
+    }
     match action {
         KeyAction::Palette => open_overlay(state, Mode::Palette, Outgoing::OpenPalette, out),
         KeyAction::Help => open_overlay(state, Mode::Help, Outgoing::OpenHelp, out),
@@ -303,7 +451,71 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
         KeyAction::OpenSettings => open_overlay(state, Mode::Settings, Outgoing::OpenSettings, out),
         KeyAction::RunDoctor => open_overlay(state, Mode::Doctor, Outgoing::RunDoctor, out),
         KeyAction::OpenHandoff => open_overlay(state, Mode::Handoff, Outgoing::OpenHandoff, out),
+        KeyAction::OpenAbout => open_overlay(state, Mode::About, Outgoing::OpenAbout, out),
         KeyAction::OpenMemory => open_overlay(state, Mode::Memory, Outgoing::OpenMemory, out),
+        KeyAction::OpenLogViewer => {
+            open_overlay(state, Mode::LogViewer, Outgoing::OpenLogViewer, out)
+        }
+        KeyAction::LogScrollUp => {
+            if state.mode == Mode::LogViewer {
+                let mut buf = state.log_buffer;
+                buf.scroll_up();
+                AppState {
+                    log_buffer: buf,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::LogScrollDown => {
+            if state.mode == Mode::LogViewer {
+                let mut buf = state.log_buffer;
+                buf.scroll_down();
+                AppState {
+                    log_buffer: buf,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::LogScrollTop => {
+            if state.mode == Mode::LogViewer {
+                let mut buf = state.log_buffer;
+                buf.scroll_top();
+                AppState {
+                    log_buffer: buf,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::LogScrollBottom => {
+            if state.mode == Mode::LogViewer {
+                let mut buf = state.log_buffer;
+                buf.scroll_bottom();
+                AppState {
+                    log_buffer: buf,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
+        KeyAction::LogToggleFollow => {
+            if state.mode == Mode::LogViewer {
+                let mut buf = state.log_buffer;
+                buf.toggle_follow();
+                AppState {
+                    log_buffer: buf,
+                    ..state
+                }
+            } else {
+                state
+            }
+        }
         KeyAction::SaveMemo => save_memo(state, out),
         KeyAction::ForkDraftTheme => fork_draft_theme(state),
         KeyAction::CommitDraftTheme => commit_draft_theme(state, out),
@@ -440,12 +652,34 @@ fn apply_outgoing(state: AppState, o: Outgoing, out: &mut Vec<Outgoing>) -> AppS
             mode: Mode::Handoff,
             ..state
         },
+        Outgoing::OpenAbout => AppState {
+            mode: Mode::About,
+            ..state
+        },
         Outgoing::OpenMemory => AppState {
             mode: Mode::Memory,
             ..state
         },
+        Outgoing::OpenLogViewer => AppState {
+            mode: Mode::LogViewer,
+            ..state
+        },
+        Outgoing::LogAppend(line) => {
+            let mut buf = state.log_buffer;
+            buf.push(line);
+            AppState {
+                log_buffer: buf,
+                ..state
+            }
+        }
         Outgoing::Quit => AppState {
             should_quit: true,
+            ..state
+        },
+        Outgoing::SkipBoot => AppState {
+            // Boot screen has ended -- the framework already consumed
+            // the keypress; just return to the cockpit.
+            mode: Mode::Cockpit,
             ..state
         },
         Outgoing::SubmitPrompt(_)

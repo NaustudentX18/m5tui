@@ -181,6 +181,21 @@ pub fn render_memory(frame: &mut Frame, _state: &AppState, theme: &Theme) {
     draw_hint(frame, "esc close   enter open", theme);
 }
 
+/// About/version sheet — build info, themes, keybind summary. The
+/// actual content is rendered by `super::about`; this wrapper exists
+/// to match the convention of one entry point per overlay.
+pub fn render_about(frame: &mut Frame, state: &AppState, theme: &Theme) {
+    super::about::render(frame, state, theme);
+}
+
+/// Log viewer overlay — scrollable in-memory log buffer with
+/// follow-tail mode. The actual content is rendered by
+/// `super::log_viewer`; this wrapper exists to match the convention of
+/// one entry point per overlay.
+pub fn render_log_viewer(frame: &mut Frame, state: &AppState, theme: &Theme) {
+    super::log_viewer::render(frame, state, theme);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

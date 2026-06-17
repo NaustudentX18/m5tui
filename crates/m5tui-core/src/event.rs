@@ -35,12 +35,28 @@ pub enum KeyAction {
     OpenVoice,
     /// Open the first-boot wizard. Triggered by the `;n` chord.
     OpenFirstBoot,
+    /// Open the log viewer overlay. Triggered by the `;L` chord.
+    OpenLogViewer,
+    /// In the log viewer, scroll one line up (older).
+    LogScrollUp,
+    /// In the log viewer, scroll one line down (newer).
+    LogScrollDown,
+    /// In the log viewer, jump to the oldest buffered line.
+    LogScrollTop,
+    /// In the log viewer, jump back to the newest line and re-enable
+    /// follow-tail.
+    LogScrollBottom,
+    /// In the log viewer, toggle the follow-tail flag.
+    LogToggleFollow,
     /// Open the device settings screen. Triggered by the `;s` chord.
     OpenSettings,
     /// Run the doctor self-check. Triggered by the `;D` chord.
     RunDoctor,
     /// Open the handoff picker. Triggered by the `;h` chord.
     OpenHandoff,
+    /// Open the about/version sheet. Triggered by the `;A` chord
+    /// (and also `;?` while the help overlay is already open).
+    OpenAbout,
     /// Open the memory/vault search. Triggered by the `;m` chord.
     OpenMemory,
     /// Save a memo. Triggered by the `;w` chord.
@@ -81,6 +97,11 @@ pub enum Outgoing {
     OpenPalette,
     /// Open the help overlay.
     OpenHelp,
+    /// Open the log viewer overlay.
+    OpenLogViewer,
+    /// Append a line to the in-memory log buffer. Emitted by the
+    /// framework whenever a new log entry arrives.
+    LogAppend(String),
     /// Close whichever modal is open and return to the cockpit.
     CloseOverlay,
     /// The user pressed Enter in the prompt with a non-empty message.
@@ -88,6 +109,10 @@ pub enum Outgoing {
     SubmitPrompt(String),
     /// The user picked `quit` from the palette or pressed a quit chord.
     Quit,
+    /// Skip the boot screen and jump to the cockpit. Emitted by the
+    /// boot widget when the user presses any key while `Mode::Boot`
+    /// is active.
+    SkipBoot,
     /// The user selected the agent at `index` in the agent list.
     SelectAgent(usize),
     /// The user pressed Tab; the framework may want to play a focus
@@ -107,6 +132,8 @@ pub enum Outgoing {
     RunDoctor,
     /// Open the handoff picker overlay.
     OpenHandoff,
+    /// Open the about/version overlay.
+    OpenAbout,
     /// Open the memory/vault search overlay.
     OpenMemory,
     /// Save a memo note; the framework should append to /sd/m5tui/memos/&lt;date&gt;.md.

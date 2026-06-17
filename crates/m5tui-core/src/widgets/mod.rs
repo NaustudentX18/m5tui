@@ -9,8 +9,11 @@
 //! reducer. The colour block at the top of `crate::palette` is the only
 //! source of RGB565 constants the widgets reference.
 
+pub mod about;
+pub mod boot;
 pub mod cockpit;
 pub mod help;
+pub mod log_viewer;
 pub mod overlay;
 pub mod palette;
 pub mod theme_editor;

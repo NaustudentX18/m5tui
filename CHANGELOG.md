@@ -5,6 +5,20 @@ All notable changes to m5Tui will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-06-17 — Boot screen + About + Log viewer
+
+### Added
+- `m5tui-core::widgets::boot` — animated boot screen with ASCII logo, 7-stage progress bar, and status line. Rendered on startup (`AppState::booting()`); any key calls `Outgoing::SkipBoot` to dismiss. 8 tests.
+- `m5tui-core::widgets::about` — version/build/themes/keybinds info overlay, opened via `;A` (or `;?` from inside `Mode::Help`). 6 tests + 3 keymap tests.
+- `m5tui-core::widgets::log_viewer` + `app::LogBuffer` — in-memory ring buffer (default 200 lines) with scroll/follow/jump-top/jump-bottom/follow-toggle. Opened via `;L`. In-mode bindings: `j/k/g/G/f`. 14+ tests (8 widget + 6 LogBuffer).
+- `m5tui-core::app::AppState::booting()` constructor — explicit boot-mode state for the host binary, leaving `AppState::default()` as the cockpit-state used by every existing reducer test.
+- `m5tui-core::keymap::keymap_for_mode(mode, c)` — state-aware chord dispatcher for in-mode bindings (LogViewer `j/k/g/G/f`). `parse_chord_with_mode` — state-aware version of `parse_chord` so `;?` from inside `Mode::Help` opens About.
+- `.github/workflows/xtensa.yml`: fixed the `rustup target add xtensa-esp32s3-espidf` step that was failing on the default `stable` toolchain. Now uses espup's installed toolchain (which is the correct one for xtensa).
+
+### Changed
+- Workspace: 395 → 444 tests (+49). All gates green.
+- `.github/workflows/xtensa.yml` cross-compile job is now correct; v1.11.0's run was failing on a pre-existing CI config bug.
+
 ## [1.11.0] - 2026-06-17 — Real device drivers + market GitHub Pages backend
 
 ### Added

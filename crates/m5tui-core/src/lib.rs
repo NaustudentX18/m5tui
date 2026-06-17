@@ -31,7 +31,7 @@ pub fn default_theme() -> m5tui_themes::Theme {
 pub use app::{reduce, step, AppState, MockAgent, MockSession, Mode, Toast};
 pub use event::{Event, Focus, KeyAction, Outgoing};
 pub use framebuffer::{Cell, Frame};
-pub use keymap::{parse_chord, LAYOUT};
+pub use keymap::{keymap_for_mode, parse_chord, parse_chord_with_mode, LAYOUT};
 pub use layout::{CELL_H, CELL_W, COLS, FB_H, FB_W, GRID_H, ROWS};
 pub use render::render;
 pub use sim::render_to_rgba;
@@ -59,7 +59,7 @@ impl std::error::Error for CoreError {}
 /// backend, and print the title plus the output buffer size. Returns
 /// `Ok(())` unconditionally for M0.
 pub fn run() -> Result<(), CoreError> {
-    let state = AppState::default();
+    let state = AppState::booting();
     let theme = default_theme();
     let frame = render(&state, &theme);
     let buf = render_to_rgba(&frame);

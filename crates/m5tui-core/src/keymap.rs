@@ -12,6 +12,7 @@
 //! reported as `KeyAction::Palette` so the input layer above can decide
 //! whether to start a chord.
 
+use crate::app::Mode;
 use crate::event::KeyAction;
 
 /// Static 4x14 keyboard layout for the Cardputer-Adv. The fifth column
@@ -76,14 +77,57 @@ pub fn parse_chord(prev: Option<char>, new: char) -> Option<KeyAction> {
             's' => Some(KeyAction::OpenSettings),
             'D' => Some(KeyAction::RunDoctor),
             'h' => Some(KeyAction::OpenHandoff),
+            'A' => Some(KeyAction::OpenAbout),
             'm' => Some(KeyAction::OpenMemory),
             'w' => Some(KeyAction::SaveMemo),
+            'L' => Some(KeyAction::OpenLogViewer),
             ';' => Some(KeyAction::Char(';')),
             c => Some(KeyAction::Char(c)),
         },
         None if new == ';' => Some(KeyAction::Palette),
         _ => Some(KeyAction::Char(new)),
     }
+}
+/// Resolve a printable char to a mode-specific key action. Returns
+/// `Some(KeyAction)` only when the active mode has its own in-mode
+/// binding for `c`; returns `None` when the caller should fall back
+/// to `from_char` / `parse_chord`.
+///
+/// Today only `Mode::LogViewer` has in-mode bindings:
+/// - `j` -> `LogScrollUp` (one line older)
+/// - `k` -> `LogScrollDown` (one line newer)
+/// - `g` -> `LogScrollTop` (jump to oldest)
+/// - `G` -> `LogScrollBottom` (jump to newest + re-enable follow)
+/// - `f` -> `LogToggleFollow` (toggle follow-tail)
+pub fn keymap_for_mode(mode: Mode, c: char) -> Option<KeyAction> {
+    match mode {
+        Mode::LogViewer => match c {
+            'j' => Some(KeyAction::LogScrollUp),
+            'k' => Some(KeyAction::LogScrollDown),
+            'g' => Some(KeyAction::LogScrollTop),
+            'G' => Some(KeyAction::LogScrollBottom),
+            'f' => Some(KeyAction::LogToggleFollow),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// State-aware chord parser. Falls back to `parse_chord` for the
+/// state-less path, then layers on mode-specific overrides:
+///
+/// - `;?` while `mode == Mode::Help` -> `OpenAbout` (the user pressed
+///   the help key from inside the help overlay, which the spec maps
+///   to opening the about sheet).
+pub fn parse_chord_with_mode(
+    prev: Option<char>,
+    new: char,
+    mode: crate::app::Mode,
+) -> Option<KeyAction> {
+    if prev == Some(';') && new == '?' && mode == crate::app::Mode::Help {
+        return Some(KeyAction::OpenAbout);
+    }
+    parse_chord(prev, new)
 }
 
 #[cfg(test)]
@@ -206,5 +250,86 @@ mod tests {
     #[test]
     fn chord_w_is_save_memo() {
         assert_eq!(parse_chord(Some(';'), 'w'), Some(KeyAction::SaveMemo));
+    }
+    #[test]
+    fn chord_capital_l_is_log_viewer() {
+        assert_eq!(parse_chord(Some(';'), 'L'), Some(KeyAction::OpenLogViewer));
+    }
+
+    #[test]
+    fn in_mode_log_j_is_scroll_up() {
+        assert_eq!(
+            keymap_for_mode(Mode::LogViewer, 'j'),
+            Some(KeyAction::LogScrollUp),
+        );
+    }
+
+    #[test]
+    fn in_mode_log_k_is_scroll_down() {
+        assert_eq!(
+            keymap_for_mode(Mode::LogViewer, 'k'),
+            Some(KeyAction::LogScrollDown),
+        );
+    }
+
+    #[test]
+    fn in_mode_log_lowercase_g_is_top() {
+        assert_eq!(
+            keymap_for_mode(Mode::LogViewer, 'g'),
+            Some(KeyAction::LogScrollTop),
+        );
+    }
+
+    #[test]
+    fn in_mode_log_capital_g_is_bottom() {
+        assert_eq!(
+            keymap_for_mode(Mode::LogViewer, 'G'),
+            Some(KeyAction::LogScrollBottom),
+        );
+    }
+
+    #[test]
+    fn in_mode_log_f_is_toggle_follow() {
+        assert_eq!(
+            keymap_for_mode(Mode::LogViewer, 'f'),
+            Some(KeyAction::LogToggleFollow),
+        );
+    }
+
+    #[test]
+    fn in_mode_log_other_keys_pass_through() {
+        assert_eq!(keymap_for_mode(Mode::LogViewer, 'x'), None);
+        assert_eq!(keymap_for_mode(Mode::LogViewer, '?'), None);
+    }
+
+    #[test]
+    fn in_mode_other_modes_have_no_overrides() {
+        assert_eq!(keymap_for_mode(Mode::Cockpit, 'j'), None);
+        assert_eq!(keymap_for_mode(Mode::Help, 'f'), None);
+        assert_eq!(keymap_for_mode(Mode::Palette, 'g'), None);
+    }
+
+    #[test]
+    fn chord_capital_a_is_open_about() {
+        assert_eq!(parse_chord(Some(';'), 'A'), Some(KeyAction::OpenAbout),);
+    }
+
+    #[test]
+    fn chord_question_mark_from_help_is_open_about() {
+        // `;?` typed while the help overlay is open re-routes to the
+        // about sheet instead of opening help again.
+        assert_eq!(
+            parse_chord_with_mode(Some(';'), '?', Mode::Help),
+            Some(KeyAction::OpenAbout),
+        );
+    }
+
+    #[test]
+    fn chord_question_mark_from_cockpit_is_help() {
+        // Outside the help overlay, `;?` still opens help.
+        assert_eq!(
+            parse_chord_with_mode(Some(';'), '?', Mode::Cockpit),
+            Some(KeyAction::Help),
+        );
     }
 }

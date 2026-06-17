@@ -138,6 +138,7 @@ pub(crate) fn glyph_cols(glyph: u8) -> [u8; GLYPH_BYTES] {
 pub fn render(state: &AppState, theme: &m5tui_themes::Theme) -> Frame {
     let mut frame = Frame::new_solid(theme.palette.bg.0);
     match state.mode {
+        crate::app::Mode::Boot => widgets::boot::render(&mut frame, state, theme),
         crate::app::Mode::Cockpit => widgets::cockpit::render(&mut frame, state, theme),
         crate::app::Mode::Palette => widgets::palette::render(&mut frame, state, theme),
         crate::app::Mode::Help => widgets::help::render(&mut frame, state, theme),
@@ -153,7 +154,11 @@ pub fn render(state: &AppState, theme: &m5tui_themes::Theme) -> Frame {
         crate::app::Mode::Settings => widgets::overlay::render_settings(&mut frame, state, theme),
         crate::app::Mode::Doctor => widgets::overlay::render_doctor(&mut frame, state, theme),
         crate::app::Mode::Handoff => widgets::overlay::render_handoff(&mut frame, state, theme),
+        crate::app::Mode::About => widgets::overlay::render_about(&mut frame, state, theme),
         crate::app::Mode::Memory => widgets::overlay::render_memory(&mut frame, state, theme),
+        crate::app::Mode::LogViewer => {
+            widgets::overlay::render_log_viewer(&mut frame, state, theme)
+        }
     }
     widgets::toast::render(&mut frame, state, theme);
     frame

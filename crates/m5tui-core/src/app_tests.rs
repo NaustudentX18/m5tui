@@ -416,3 +416,177 @@ fn step_discard_draft_theme_clears_without_save() {
     let has_save = outs.iter().any(|o| matches!(o, Outgoing::SaveTheme(_)));
     assert!(!has_save);
 }
+// -- LogBuffer ---------------------------------------------------------------
+
+#[test]
+fn log_buffer_new_is_empty_and_follows_tail() {
+    let buf = LogBuffer::new(8);
+    assert!(buf.is_empty());
+    assert_eq!(buf.len(), 0);
+    assert!(buf.tail_mode);
+    assert_eq!(buf.scroll_offset, 0);
+}
+
+#[test]
+fn log_buffer_push_under_capacity_keeps_lines() {
+    let mut buf = LogBuffer::new(3);
+    buf.push("a".into());
+    buf.push("b".into());
+    buf.push("c".into());
+    assert_eq!(buf.len(), 3);
+    let lines: Vec<&str> = buf.lines().collect();
+    assert_eq!(lines, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn log_buffer_overflow_drops_oldest() {
+    let mut buf = LogBuffer::new(2);
+    buf.push("a".into());
+    buf.push("b".into());
+    buf.push("c".into());
+    let lines: Vec<&str> = buf.lines().collect();
+    assert_eq!(lines, vec!["b", "c"]);
+    assert_eq!(buf.len(), 2);
+}
+
+#[test]
+fn log_buffer_tail_mode_resets_scroll_on_push() {
+    let mut buf = LogBuffer::new(8);
+    buf.push("a".into());
+    buf.push("b".into());
+    buf.push("c".into());
+    buf.scroll_up();
+    assert!(!buf.tail_mode);
+    buf.toggle_follow(); // back to follow
+    buf.scroll_up();
+    assert!(!buf.tail_mode);
+    buf.push("d".into());
+    // tail_mode is true again, scroll_offset reset
+    buf.toggle_follow();
+    buf.scroll_up();
+    assert!(!buf.tail_mode);
+    buf.push("e".into());
+    assert!(!buf.tail_mode);
+    assert!(
+        buf.scroll_offset > 0,
+        "expected push to NOT reset offset when tail_mode is off"
+    );
+}
+
+#[test]
+fn log_buffer_scroll_top_and_bottom_bounds() {
+    let mut buf = LogBuffer::new(4);
+    for s in ["a", "b", "c", "d"] {
+        buf.push(s.into());
+    }
+    buf.scroll_top();
+    assert_eq!(buf.scroll_offset, 3);
+    assert!(!buf.tail_mode);
+    // Already at the top -- scroll_up saturates.
+    buf.scroll_up();
+    assert_eq!(buf.scroll_offset, 3);
+    buf.scroll_bottom();
+    assert_eq!(buf.scroll_offset, 0);
+    assert!(buf.tail_mode);
+    // Already at the bottom -- scroll_down saturates.
+    buf.scroll_down();
+    assert_eq!(buf.scroll_offset, 0);
+}
+
+#[test]
+fn log_buffer_toggle_follow_preserves_offset_when_off() {
+    let mut buf = LogBuffer::new(8);
+    for s in ["a", "b", "c"] {
+        buf.push(s.into());
+    }
+    buf.toggle_follow();
+    buf.scroll_up();
+    buf.scroll_up();
+    buf.toggle_follow(); // turn it back off (since it's now off -> on)
+    assert!(buf.tail_mode);
+    assert_eq!(buf.scroll_offset, 0);
+    // Second case: start in follow-ON, toggle once to OFF, manually
+    // set the offset, toggle ON again — the manual offset must be
+    // preserved (since we never asked for top/bottom which auto-zero).
+    let mut buf = LogBuffer::new(8);
+    for s in ["a", "b", "c"] {
+        buf.push(s.into());
+    }
+    buf.toggle_follow(); // on -> off; offset preserved
+    assert!(!buf.tail_mode);
+    let off = 1;
+    buf.scroll_offset = off;
+    assert_eq!(buf.scroll_offset, off);
+}
+
+#[test]
+fn log_buffer_scroll_down_re_enables_tail_at_zero() {
+    let mut buf = LogBuffer::new(4);
+    for s in ["a", "b", "c"] {
+        buf.push(s.into());
+    }
+    buf.scroll_up();
+    assert!(!buf.tail_mode);
+    buf.scroll_down();
+    assert!(buf.tail_mode);
+}
+
+// -- Log viewer reducer integration -----------------------------------------
+
+#[test]
+fn default_state_has_empty_log_buffer() {
+    let s = AppState::default();
+    assert!(s.log_buffer.is_empty());
+    assert_eq!(s.log_buffer.len(), 0);
+    assert!(s.log_buffer.tail_mode);
+}
+
+#[test]
+fn step_open_log_viewer_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenLogViewer));
+    assert_eq!(s2.mode, Mode::LogViewer);
+    assert!(outs.contains(&Outgoing::OpenLogViewer));
+}
+
+#[test]
+fn step_outgoing_log_append_pushes_line() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Outgoing(Outgoing::LogAppend("hello".into())));
+    assert_eq!(s2.log_buffer.len(), 1);
+    let lines: Vec<&str> = s2.log_buffer.lines().collect();
+    assert_eq!(lines, vec!["hello"]);
+}
+
+#[test]
+fn step_log_scroll_up_in_log_viewer_moves_offset() {
+    let mut s = AppState::default();
+    for i in 0..5 {
+        s.log_buffer.push(format!("line {i}"));
+    }
+    s.mode = Mode::LogViewer;
+    let (s2, _) = step(s, Event::Key(KeyAction::LogScrollUp));
+    assert_eq!(s2.log_buffer.scroll_offset, 1);
+    assert!(!s2.log_buffer.tail_mode);
+}
+
+#[test]
+fn step_log_scroll_down_at_zero_re_enables_tail() {
+    let mut s = AppState::default();
+    for i in 0..3 {
+        s.log_buffer.push(format!("line {i}"));
+    }
+    s.mode = Mode::LogViewer;
+    let (s, _) = step(s, Event::Key(KeyAction::LogScrollUp));
+    let (s2, _) = step(s, Event::Key(KeyAction::LogScrollDown));
+    assert_eq!(s2.log_buffer.scroll_offset, 0);
+    assert!(s2.log_buffer.tail_mode);
+}
+
+#[test]
+fn step_log_scroll_keys_ignored_outside_log_viewer() {
+    let s = AppState::default();
+    let (s2, _) = step(s, Event::Key(KeyAction::LogScrollUp));
+    assert_eq!(s2.mode, Mode::Cockpit);
+    assert_eq!(s2.log_buffer.scroll_offset, 0);
+}

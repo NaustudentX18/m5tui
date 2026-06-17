@@ -32,7 +32,16 @@ jobs:
       - name: Install esp32s3 target via cargo
         run: |
           . $HOME/export-esp.sh
-          rustup target add xtensa-esp32s3-espidf
+          # espup sets a custom toolchain; use its rustup/cargo rather than the
+          # default `stable` toolchain which has no prebuilt xtensa artifacts.
+          # `espup install` adds the target to its own toolchain automatically
+          # via the export-esp.sh shim — we just verify it's there.
+          rustup target list --installed | grep -q 'xtensa-esp32s3-espidf' || {
+            echo "xtensa-esp32s3-espidf target missing from espup toolchain"
+            echo "Installed targets:"
+            rustup target list --installed
+            exit 1
+          }
       - name: Cross-compile m5tui-device (host features only)
         run: |
           . $HOME/export-esp.sh
