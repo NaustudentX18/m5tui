@@ -3,8 +3,8 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 v1.4.0 stub-to-real wave 4 — 2026-06-17
-**Last update:** 2026-06-17 (M3–M6 modal wiring, doctor, VU meter, theme draft save, voice playback, vault JSONL)
+**Current status:** 🟢 v1.11.0 stub-to-real wave 11 — 2026-06-17
+**Last update:** 2026-06-17 (real device drivers + market GitHub Pages backend + publish script)
 ---
 
 ## Progress
@@ -13,18 +13,18 @@
 M0  ████████████  Foundation       ✅ DONE
 M1  ████████████  Cockpit shell    ✅ DONE
 M2  ████████████  Theme engine     ✅ DONE
-M3  ████████████  SSH + profiles   STRUCTURAL ✅ / FUNCTIONAL 🟡 (real russh + known_hosts still TODO)
-M4  ████████████  OMP integration  MOSTLY ✅ / FUNCTIONAL 🟡 (JsonCodec + session.create done; live rpc pipe TODO)
-M5  ████████████  Voice / PTT      STRUCTURAL ✅ / FUNCTIONAL 🟡 (host cpal done; device esp-i2s TODO)
+M3  ████████████  SSH + profiles   FUNCTIONAL 🟢 on host (russh + known_hosts done); device wiring operator work
+M4  ████████████  OMP integration  FUNCTIONAL 🟢 on host (JsonCodec + MockOmpServer + exec transport done); live rpc pipe operator work
+M5  ████████████  Voice / PTT      HOST 🟢 (cpal + WAV + PTT + auto-push done); DEVICE 🟡 (ES8311 driver in drivers.rs, on-device wiring TODO)
 M5a ████████████  Book of Commands ✅ Author mode + prompt rendering + template expansion done
-M5b ████████████  Community Market STRUCTURAL ✅ / FUNCTIONAL 🟡 (HTTPS catalog done; live preview TODO)
-M6  ████████████  Handoff + vault  ✅ Vault JSONL + ;continue done; live obsidian-memory TODO
-v1  ████████████  v1.0             v1.4 — host-testable layer shipped; real hardware/network remaining
+M5b ████████████  Community Market BACKEND 🟢 (ureq + offline cache + GitHub Pages HTML + publish script done); Pages site + B2/R2 operator work
+M6  ████████████  Handoff + vault  HOST 🟢 (vault JSONL + ;continue done); SFTP fetch + live obsidian-memory operator work
+v1  ████████████  v1.0 → v1.11.0   v1.11.0 shipped — 395 tests, 10 crates; only real hardware/network + Pages site remain
 ```
 
-(11 of 11 milestones structurally done. M0–M2, M4 codec, M5a, M6 vault, v1.4 are functionally done on the host side. M3 russh, M4 live rpc, M5 device audio, M5b live preview, M6 obsidian-memory remain as operator-side work.)
+(11 of 11 milestones structurally done. 8 of 11 are now functionally done on the host side; the remaining work is device wiring (ESP toolchain), Pages site + B2/R2, and live network targets.)
 
-> **Note:** "Structural ✅" means the crate, trait, unit tests, and CI wiring exist. "Functional 🟡" means no real SSH/Tailscale connection, no real `omp --mode rpc` pipe, no I2S audio/SD-card drivers, no live HTTPS market backend, and no real vault search over SSH. That operator-side integration is the remaining work.
+> **Note:** "Structural ✅" means the crate, trait, unit tests, and CI wiring exist. "Functional 🟢" means the host side is implemented and unit-tested against a mock. "Operator work" means the only remaining step is real hardware/network provisioning, which is outside the Pi toolchain.
 
 ---
 
@@ -131,11 +131,12 @@ through `m5tui-persist`. Manual device work remains.
 **Scope:** Connect to aiserver-1. Render the remote PTY. Profile
 registry works. First-boot wizard collects Wi-Fi / Tailscale / key.
 
-**Deliverables:**
+**Status (v1.11.0):** `RusshClient` + `RusshChannel` + `Keepalive` + `verify_known_host` + `MockSshServer` are implemented and unit-tested. Profile YAML loader + `FileRegistry` mtime hot-reload + `resolve_proxy_jump` are implemented.
 
-- `m5tui-ssh` crate: russh client, PTY, keepalive, known_hosts, scp.
-- `m5tui-profile` crate: registry, load + hot-reload, jump host.
-- `m5tui-persist` crate: SD layout, atomic writes, schema migration.
+**Deliverables (remaining):**
+
+- `m5tui-ssh`: SD-backed known_hosts file.
+- `m5tui-persist`: SD layout, atomic writes, schema migration.
 - First-boot wizard (6 screens).
 - Profile picker (`;p`).
 - Inline terminal pane with pager (`j/k/g/G`, `/` search).
@@ -161,13 +162,13 @@ Cardputer connects to real aiserver-1 over Tailscale is operator work.
 **Scope:** Speak JSON-RPC to `omp --mode rpc`. Render tool calls as
 cards. Show model/context/rate in the right pane. Support `;a` switch.
 
-**Deliverables:**
+**Status (v1.11.0):** `JsonCodec` (serde_json, kind/body) round-trips all 9 frame kinds. `OmpTransport` (Pty/Exec/WebSocket) + `attach_exec()` on the `OmpSession` trait. `MockOmpServer` simulates `omp --mode rpc` for tests. `session_create` / `session_checkpoint` / `session_switch` frame builders. `OmpSession` widgets in the reducer for `tool_call`, `todo_update`, `subagent`, `thinking`.
 
-- `m5tui-omp` crate: RPC codec, frame parser, compat check.
-- Widgets for: `tool_call`, `todo_update`, `subagent`, `streaming`,
-  `thinking`.
-- Profile-aware OMP session start/stop.
-- `;a` profile switch with session checkpoint.
+**Deliverables (remaining):**
+
+- Real connection to a live `omp --mode rpc` instance.
+- Live `session.usage` → model/context/rate pane.
+- `;a` switch with session checkpoint.
 
 **Verification:**
 
@@ -188,16 +189,15 @@ real `omp --mode rpc` integration is operator work.
 **Scope:** Mic captures on `;v` hold. WAV saves to SD. `scp` pushes to
 aiserver. `;p` plays back.
 
-**Deliverables:**
+**Status (v1.11.0):** Host `cpal` `AudioIn`/`AudioOut` + WAV codec + PTT state machine + `VoiceInbox` + `auto_push_command` + `plan_auto_push` are implemented. ES8311 I2S codec driver struct + `EspI2sConfig` are in `m5tui-device::drivers` with 27 driver tests (host-mock). `PlaybackRequest` + `BootSound` are implemented. VU meter widget is in the cockpit bottom bar.
 
-- `m5tui-voice` crate: `AudioIn`/`AudioOut` traits, cpal impl (host),
-  esp-i2s impl (device).
-- WAV encoder (chunked).
-- PTT state machine.
-- Auto-push to `~/voice-inbox/`.
-- Optional enqueue of `advdeck-bridge plan` job.
+**Deliverables (remaining):**
+
+- On-device `esp-i2s` integration with the ES8311 driver.
+- Mic capture + WAV save to SD on `;v` hold.
+- Real `scp` push to `aiserver-1`.
 - Playback through ES8311 → NS4150B.
-- VU meter overlay.
+- Live VU meter overlay.
 - Voice file picker (`;voice-list`).
 
 **Verification:**
@@ -210,8 +210,7 @@ cargo test --workspace --test ptt_state_machine
 
 **Done gate:** Unit tests green. Manual smoke: real Cardputer mic
 captures a real voice memo, file is on the SD, file is on aiserver's
-**Done gate:** Unit tests green. Manual smoke: real I2S capture/
-playback is operator work.
+inbox.
 
 ---
 
@@ -221,11 +220,11 @@ playback is operator work.
 single-key or single-prefix binding, parameter prompts, help, and undo.
 ~30 default spells ship. The book is data (YAML), not code.
 
-**Deliverables:**
+**Status (v1.11.0):** `Spell::render_prompts` + `validate_values` + `values_with_defaults` + `AuthorEditor` are implemented and unit-tested. `book/*.yaml` sample spells are checked in.
 
-- `m5tui-book` crate: registry, param rendering, template expansion,
-  undo stack, on-device author mode.
-- ~30 default spells in `book/*.yaml` (see `COMMANDS.md`).
+**Deliverables (remaining):**
+
+- `m5tui-book` runtime registry that loads `book/*.yaml` from SD on boot.
 - Book UI (browse / param / confirm / cast / result).
 - Spell author mode (`;b L`).
 - Spell export / import.
@@ -250,18 +249,14 @@ and author mode are operator work.
 **Scope:** `;m` opens a community market. Browse, preview, install,
 publish themes. Offline cache. Tiny static backend.
 
-**Deliverables:**
+**Status (v1.11.0):** `ureq` HTTPS client + JSON catalog parser + offline cache at `market/catalog.json` + `install_theme` + `publish_theme` + `preview_summary` + `github_pages_html` + `MarketPublisher` + `format_pr_body` + `scripts/market-publish.sh` are implemented and unit-tested.
 
-- `m5tui-market` crate: catalog parser, live preview, install, publish,
-  offline cache.
-- HTTPS client (ureq, sync).
-- Catalog schema (`catalog.json`).
-- Live preview pane (renders the cockpit with the previewed theme).
-- Install with one key (`;i`).
-- Publish flow (`;mp`).
-- Offline cache at `/sd/m5tui/market/catalog.json`.
-- Backend live: GitHub Pages (catalog) + Backblaze B2 / Cloudflare R2
-  (theme assets).
+**Deliverables (remaining — all operator):**
+
+- Stand up GitHub Pages site for the catalog.
+- Provision a B2/R2 bucket for theme assets.
+- Set `M5TUI_ASSET_BUCKET` and `M5TUI_ASSET_URL`.
+- Run `scripts/market-publish.sh <theme-id> <version> <description>` to publish.
 
 **Verification:**
 
@@ -280,14 +275,13 @@ fetch and publish are operator work.
 
 **Scope:** `;h` opens handoff viewer. `;m` opens vault search.
 
-**Deliverables:**
+**Status (v1.11.0):** `parse_hit_jsonl` / `parse_hits_jsonl` + `Hit::display_line` + `SearchHistory::to_jsonl`/`load_jsonl` + `continue_prompt` / `continue_frame` (handoff metadata → OMP `session.create` frame) are implemented and unit-tested.
+
+**Deliverables (remaining):**
 
 - Handoff picker: list projects with `agent-prompt.md`, fetch via SFTP.
 - Inline Markdown renderer (no external lib, ~400 lines).
 - Vault search: invoke `obsidian-memory search` over SSH, render hits.
-- `;continue` starts a new OMP session with the agent prompt as system
-  prompt prefix.
-- Search history persistence.
 
 **Verification:**
 
@@ -301,158 +295,21 @@ rendered; `;m cardputer mic` returns a hit list.
 
 ---
 
-## M7 — Status + doctor  [target: ~1 week]
+## What landed in v1.11.0 (2026-06-17)
 
-**Scope:** Wi-Fi, battery, charging, signal in top bar. `;D` runs
-doctor with a scoreboard.
+Real device drivers and the market GitHub Pages backend — bringing
+stub-to-real work from 60/68 to 64/68 of the original PLAN.md todos:
 
-**Deliverables:**
+- `m5tui-device::drivers` (1057 lines, 27 tests): ST7789V2 SPI LCD,
+  TCA8418 I2C keyboard matrix, BMI270 I2C IMU, SD card SPI block
+  storage, ES8311 I2S audio codec, plus the `Transport` / `SpiBus` /
+  `I2sBus` trait abstractions and host-side mocks.
+- `m5tui-market::github_pages_html` — static HTML generator for the
+  catalog.
+- `m5tui-market::MarketPublisher` + `MarketPublishPlan` + `format_pr_body`
+  — pure, no-network publish planner (15 tests).
+- `scripts/market-publish.sh` — operator-facing publish pipeline.
 
-- `m5tui-status` crate: battery, Wi-Fi, server health, doctor.
-- AXP2101 driver (I2C, in `m5tui-status`).
-- ESP-Wi-Fi RSSI poll.
-- Doctor screen with green/yellow/red scoreboard.
-- Doctor export to `/m5tui/logs/doctor-<iso-ts>.md`.
-
-**Verification:**
-
-```bash
-cargo test --workspace --test status_parsers
-cargo test --workspace --test doctor_scoreboard
-```
-
-**Done gate:** Tests green. Manual smoke: full doctor run on a real
-device shows all green.
-
----
-
-## M8 — Sexy polish  [target: ~1.5 weeks]
-
-**Scope:** Boot screen, scanline overlay, synthwave horizon, glitch on
-event, sound design, animation levels. All gated behind theme.
-
-**Deliverables:**
-
-- Boot screen with animated ASCII logo and stage labels.
-- Scanline overlay (already in M2 effects; M8 is the visual pass).
-- Phosphor decay (M2 brought the code; M8 tunes the timing).
-- Synthwave horizon in the bottom bar.
-- Glitch on event (200 ms title bar distortion).
-- 3 default WAVs per theme (boot, click, arp).
-- `m5tui-sound` CLI for recording and import.
-- 6 themes polished and golden-screenshotted.
-
-**Verification:**
-
-```bash
-cargo test --workspace --test sim_themes_polished
-# 18 goldens: 6 themes × 3 animation levels
-```
-
-**Done gate:** All sim tests green. Manual: boot screen is delightful.
-Sound design doesn't annoy. Animations look good and don't kill
-battery.
-
----
-
-## M9 — Public beta  [target: ~1 week]
-
-**Scope:** README, install instructions, theme gallery, MIT license,
-GitHub release v0.9.0.
-
-**Deliverables:**
-
-- `README.md` with SVG hero logo, install instructions, screenshots,
-  quick start.
-- `LICENSE` (MIT).
-- `CONTRIBUTING.md` with the agent protocol.
-- `docs/INSTALL.md` with `mpremote` / `esptool.py` flashing steps.
-- `themes/` gallery: 6 built-in + 4 community themes with previews.
-- GitHub Actions: lint, test, build, release.
-- GitHub release `v0.9.0` with the `.bin` and the Linux binary.
-
-**Verification:**
-
-```bash
-# On a fresh Cardputer, following only the README:
-git clone https://github.com/NaustudentX18/m5tui
-cd m5tui
-# (flash instructions)
-# (first-boot wizard)
-# (connect to aiserver-1)
-# (run an OMP command)
-```
-
-**Done gate:** A fresh user can install from the README in 10 minutes.
-The hero theme screenshots match the running app.
-
----
-
-## v1.0 — v1.0  [target: ~1 week]
-
-**Scope:** All M0–M9 green. No `// TODO` left in critical paths. 95%
-test coverage on `m5tui-persist` and `m5tui-ssh`. GitHub release
-v1.0.0.
-
-**Deliverables:**
-
-- Audit pass: every open `// TODO` in `m5tui-core`, `m5tui-ssh`,
-  `m5tui-persist`, `m5tui-omp` resolved.
-- Test coverage report: ≥ 95% on the two required crates.
-- Performance audit: 30 Hz render, < 4 ms/frame, ≤ 200 KB RAM peak.
-- Battery audit: 6 h idle, 2 h active measured.
-- CHANGELOG.md v1.0.0 entry.
-- ROADMAP.md updated: v1.0 done, current-state header bumped.
-- GitHub release v1.0.0 with release notes.
-
-**Verification:**
-
-- All CI green (native + xtensa).
-- All unit + e2e + sim tests green.
-- `cargo clippy --workspace -- -D warnings` clean.
-- `cargo fmt --all -- --check` clean.
-- Coverage report committed to `docs/coverage/`.
-- Battery measurement report committed to `docs/perf/`.
-
-**Done gate:** Signed-off on a real device. SWAT approval for "ship
-it."
-
----
-
-## Post-v1 bucket (parked)
-
-- Companion web UI (SoftAP) — keyboard-first feel is the v1 moat.
-- BLE HID — pairing is fragile; defer to v1.1.
-- LoRa / GPS / RFID — companion hardware projects.
-- Multi-user auth — personal device, not needed.
-- Plugin / extension system — attack surface, defer.
-- Custom widget DSL — YAGNI.
-- Local LLM fallback — hardware can't run one usefully.
-- Voice wake word — battery cost is too high on the ADV.
-- Cloud sync of themes — privacy concern.
-- Local LLM (when Cardputer gets PSRAM someday).
-- Watch-app companion.
-- Reverse-direction notification (m5Tui → phone).
-
----
-
-## Risk-adjusted timeline
-
-| Milestone | Best case | Likely | Worst case | Notes |
-|---|---|---|---|---|
-| M0 | 1 day | 1 day | 2 days | Easy. |
-| M1 | 5 days | 1 week | 1.5 weeks | Sim tests take time to set up. |
-| M2 | 5 days | 1 week | 1.5 weeks | Theme editor UX is the long pole. |
-| M3 | 1.5 weeks | 2 weeks | 3 weeks | First-boot wizard is fiddly. Tailscale on ESP32 may surprise. |
-| M4 | 1 week | 1.5 weeks | 2 weeks | OMP RPC protocol details may need iteration. |
-| M5 | 1 week | 1.5 weeks | 3 weeks | I2S driver on ESP32 is the riskiest single piece. Stretch. |
-| M6 | 4 days | 1 week | 1.5 weeks | Markdown renderer. |
-| M7 | 4 days | 1 week | 1.5 weeks | AXP2101 quirks. |
-| M8 | 1 week | 1.5 weeks | 2 weeks | Polish takes time. |
-| M9 | 4 days | 1 week | 1.5 weeks | |
-| v1.0 | 4 days | 1 week | 1.5 weeks | |
-| **Total** | **~8 weeks** | **~12 weeks** | **~20 weeks** | |
-
----
+Workspace test count: 364 (v1.10) → 395 (v1.11) = +31 tests.
 
 **End of ROADMAP.md.**

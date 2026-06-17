@@ -25,11 +25,10 @@
 
 use m5tui_core::framebuffer::Frame;
 use m5tui_core::layout::{FB_H, FB_W};
-
+pub mod drivers;
 pub mod host;
 pub mod traits;
 
-/// Re-export the shared device error so callers don't have to remember the
 /// module path.
 pub use traits::DeviceError;
 

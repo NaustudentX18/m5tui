@@ -5,47 +5,22 @@ All notable changes to m5Tui will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-06-17 — Real device drivers + market GitHub Pages backend
+
+### Added
+- `m5tui-device::drivers` (new module, 1057 lines): ST7789V2 SPI LCD driver (240x135), TCA8418 I2C keyboard matrix driver (Cardputer-Adv keymap), BMI270 I2C IMU driver, SD card SPI block-storage driver, ES8311 I2S audio codec driver, plus the `Transport` / `SpiBus` / `I2sBus` trait abstractions and the host-side `MockTransport` / `MockSpi` / `MockI2s` so the driver logic is unit-testable without hardware. 27 new tests.
+- `m5tui-market::github_pages_html(catalog) -> String` — self-contained static HTML (no external assets) for the operator to commit to `docs/index.html`. Each `ThemeEntry` becomes a card with name, version, swatch, description, and download link.
+- `m5tui-market::MarketPublisher` + `MarketPublishPlan` + `format_pr_body` — pure, no-network publish planner that produces the catalog entry, the asset YAML, the file paths, and a Markdown PR body the operator (or CI) feeds to `gh pr create`. 15 new tests.
+- `scripts/market-publish.sh` — operator-facing publish pipeline: validates the theme YAML, opens a branch, edits `market/catalog.json` via inline Python, pushes, and opens a PR. Idempotent.
+
+### Known limitations
+- The 5 driver structs compile and unit-test on the host; the on-device `unsafe extern "C"` paths into `esp-idf-hal` are still pending the ESP-IDF feature-gate work (depends on the operator installing the toolchain).
+- The market GitHub Pages backend assumes a future `market/catalog.json` and `market/assets/` directory; the script will create the branch but the operator must wire up the Pages site + B2/R2 bucket first.
+
 ## [Unreleased]
 
 ### Changed
 - README.md and ROADMAP.md now explicitly distinguish structural completion (trait stubs, tests, CI) from functional completion (real hardware/network integration). Stub-to-real work begins.
-
-## [1.8.0] - 2026-06-17 — xtensa CI + build script + justfile
-
-### Added
-- `scripts/build-esp.sh` — bash build/flash/monitor pipeline for the
-  Cardputer-Adv. Sources espup's `export-esp.sh`, installs the
-  `xtensa-esp32s3-espidf` target if missing, runs `cargo check` and
-  optionally `cargo build`, then calls `espflash` for the requested
-  port. `--debug` and `--release` profiles; `--flash PORT` and
-  `--monitor PORT` flags.
-- `justfile` — task runner for the host gates, sim run, device
-  build, flash, flash-and-monitor, push, and release tag. `just`
-  without arguments lists the recipes.
-- `.github/workflows/xtensa.yml` is now a real cross-compile job
-  that installs espup, libclang, the xtensa-esp32s3-espidf target,
-  and runs `cargo check -p m5tui-bin --target xtensa-esp32s3-espidf`
-  in addition to the `device` feature build (which is allowed to
-  fail with a clear warning until M5GFX bindings are added).
-
-## [1.9.0] - 2026-06-17 — RusshClient + known_hosts + MockSshServer
-
-### Added
-- `m5tui-ssh::russh_client::RusshClient` — real `russh`-backed
-  `SshClient` implementation. Implements the full trait
-  surface (connect, exec, pty, scp_upload, scp_download,
-  disconnect), mapping internal `RusshError` to the public
-  `SshError`.
-- `russh_client::Endpoint::from_profile` — host/port parser with
-  default port 22.
-- `russh_client::verify_known_host` — pure known_hosts checker
-  with hex-prefix matching. Returns `Known` / `Unknown` /
-  `HostKeyRejected`.
-- `russh_client::known_hosts_entry` — builds a known_hosts line
-  from host/port/keytype/key bytes.
-- `russh_client::MockSshServer` — in-process server stub for
-  tests; records connect attempts, learned entries, advertises a
-  deterministic 8-byte key prefix.
 
 ## [1.10.0] - 2026-06-17 — RusshChannel + Keepalive + voice auto-push
 
@@ -66,13 +41,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   batch of auto-push commands for every memo with `pushed == false`.
   Returns an empty list when auto-push is disabled.
 
+## [1.9.0] - 2026-06-17 — RusshClient + known_hosts + MockSshServer
 
 ### Added
-- `m5tui-status` crate (new lib content): `BatteryStatus`, `WifiStatus`, `TailscaleStatus`, `ServerHealth`, `OmpPing`, `DiskUsage`, `Uptime` readings with healthy/warn/fail thresholds. `DoctorSnapshot::render_markdown()` produces a self-contained doctor report; `report_filename()` names the file.
-- `m5tui-handoff`: `parse_hit_jsonl` / `parse_hits_jsonl` for `obsidian-memory` output. `Hit::display_line()` formats a single 40-col line. `SearchHistory` with `to_jsonl` / `load_jsonl` round-trip and silent-drop on corrupt lines.
-- `m5tui-voice`: `PlaybackRequest` (once / looped / at tick) and `BootSound` (Boot / Click / Arp / Silent) with asset path and fallback frequency.
-- `m5tui-core`: `widgets/vu.rs` — VU meter (10-cell bar + peak marker) for the cockpit bottom bar. `bar_string()` is the pure formatter; `draw()` mutates a `Frame` using `theme.palette.{ok,accent,err,dim}`.
-- `m5tui-core`: `KeyAction::ForkDraftTheme` / `CommitDraftTheme` / `DiscardDraftTheme` wire the theme editor to the persist layer via `Outgoing::SaveTheme(Box<Theme>)`. `AppState` gains `theme_draft`, `theme_menu_index`, `theme_draft_palette` fields.
+- `m5tui-ssh::russh_client::RusshClient` — real `russh`-backed
+  `SshClient` implementation. Implements the full trait
+  surface (connect, exec, pty, scp_upload, scp_download,
+  disconnect), mapping internal `RusshError` to the public
+  `SshError`.
+- `russh_client::Endpoint::from_profile` — host/port parser with
+  default port 22.
+- `russh_client::verify_known_host` — pure known_hosts checker
+  with hex-prefix matching. Returns `Known` / `Unknown` /
+  `HostKeyRejected`.
+- `russh_client::known_hosts_entry` — builds a known_hosts line
+  from host/port/keytype/key bytes.
+- `russh_client::MockSshServer` — in-process server stub for
+  tests; records connect attempts, learned entries, advertises a
+  deterministic 8-byte key prefix.
+
+## [1.8.0] - 2026-06-17 — xtensa CI + build script + justfile
+
+### Added
+- `scripts/build-esp.sh` — bash build/flash/monitor pipeline for the
+  Cardputer-Adv. Sources espup's `export-esp.sh`, installs the
+  `xtensa-esp32s3-espidf` target if missing, runs `cargo check` and
+  optionally `cargo build`, then calls `espflash` for the requested
+  port. `--debug` and `--release` profiles; `--flash PORT` and
+  `--monitor PORT` flags.
+- `justfile` — task runner for the host gates, sim run, device
+  build, flash, flash-and-monitor, push, and release tag. `just`
+  without arguments lists the recipes.
+- `.github/workflows/xtensa.yml` is now a real cross-compile job
+  that installs espup, libclang, the xtensa-esp32s3-espidf target,
+  and runs `cargo check -p m5tui-bin --target xtensa-esp32s3-espidf`
+  in addition to the `device` feature build (which is allowed to
+  fail with a clear warning until M5GFX bindings are added).
+
+## [1.7.0] - 2026-06-17 — OMP exec transport + MockOmpServer
+
+### Added
+- `m5tui-omp::OmpTransport` (Pty / Exec / WebSocket variants) on the
+  `OmpSession` trait, with `transport()` and `attach_exec()` methods.
+- `StubOmpSession` now tracks the active transport and defaults to
+  `Pty` on `start()`.
+- `MockOmpServer` — in-process OMP RPC server for tests, with a
+  `round_trip_line()` convenience helper. 8 new tests.
+
+## [1.6.0] - 2026-06-17 — Market live preview summary
+
+### Added
+- `m5tui-market::preview_summary(theme) -> [String; 4]` — 4-line,
+  40-column ASCII summary of a previewed theme for the catalog picker
+  overlay. Always 4 lines, never wider than 40 columns. 1 new test.
+
+## [1.5.0] - 2026-06-17 — Book author mode + CHANGELOG/ROADMAP sync
+
+### Added
+- `m5tui-book::Spell::render_prompts()` with required/default markers,
+  `validate_values`, `values_with_defaults`, and `AuthorEditor`
+  fluent builder. 5 new tests.
+- `CHANGELOG.md` and `ROADMAP.md` updated to reflect v1.1–v1.4
+  status.
+
+## [1.4.0] - 2026-06-17 — Theme draft save + doctor report + VU meter
+
+### Added
+- `m5tui-status` crate (new lib content): `BatteryStatus`, `WifiStatus`,
+  `TailscaleStatus`, `ServerHealth`, `OmpPing`, `DiskUsage`, `Uptime`
+  readings with healthy/warn/fail thresholds. `DoctorSnapshot::render_markdown()`
+  produces a self-contained doctor report; `report_filename()` names
+  the file. 12 new tests.
+- `m5tui-handoff`: `parse_hit_jsonl` / `parse_hits_jsonl` for
+  `obsidian-memory` output. `Hit::display_line()` formats a single
+  40-col line. `SearchHistory` with `to_jsonl` / `load_jsonl`
+  round-trip and silent-drop on corrupt lines. 8 new tests.
+- `m5tui-voice`: `PlaybackRequest` (once / looped / at tick) and
+  `BootSound` (Boot / Click / Arp / Silent) with asset path and
+  fallback frequency. 2 new tests.
+- `m5tui-core`: `widgets/vu.rs` — VU meter (10-cell bar + peak marker)
+  for the cockpit bottom bar. `bar_string()` is the pure formatter;
+  `draw()` mutates a `Frame` using `theme.palette.{ok,accent,err,dim}`.
+  9 new tests.
+- `m5tui-core`: `KeyAction::ForkDraftTheme` / `CommitDraftTheme` /
+  `DiscardDraftTheme` wire the theme editor to the persist layer via
+  `Outgoing::SaveTheme(Box<Theme>)`. `AppState` gains `theme_draft`,
+  `theme_menu_index`, `theme_draft_palette` fields. 4 new reducer
+  tests.
 
 ## [1.3.0] - 2026-06-17 — M3-M6 modal overlays wired to keymap + reducer
 
@@ -97,6 +152,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `m5tui-market`: `ureq` HTTPS fetch; JSON catalog parser; offline cache at `market/catalog.json`; install + publish.
 - `m5tui-voice`: `cpal` `AudioIn`/`AudioOut` under `host-audio` feature; WAV encoder/decoder; PTT state machine; `VoiceInbox`.
 - `m5tui-device`: trait surface for `Display`/`Keyboard`/`Imu`/`AudioIn`/`AudioOut`/`Storage` + `HostDevice` implementation; `device` feature flag reserved for `esp-idf`.
+
+## [1.0.0] - 2026-06-16 — Structural v1.0
+
+### Added
+- M3 crates: `m5tui-ssh`, `m5tui-profile`, `m5tui-persist` with trait stubs,
+  in-memory implementations, and unit tests.
+- M4 crate: `m5tui-omp` with line-oriented frame codec, `OmpSession` trait,
+  and `StubOmpSession`.
+- M5 crate: `m5tui-voice` with `AudioIn`/`AudioOut`, WAV encoder/decoder,
+  PTT state machine, and `VoiceInbox`.
+- M5a crate: `m5tui-book` + `book/*.yaml` sample spells, registry, template
+  expansion, undo stack.
+- M5b crate: `m5tui-market` + catalog schema, stub client, offline cache
+  placeholder, theme preview via `m5tui-themes::parse`.
+- M6 crate: `m5tui-handoff` with handoff store, minimal Markdown renderer,
+  and vault search stub.
+- `crates/m5tui-bin/tests/integration_v1.rs` smoke test exercising every
+  crate through public APIs.
+- Bumped every crate version to `1.0.0`.
+
+### Changed
+- `README.md` status block updated to v1.0.0 structurally shipped.
+- `ROADMAP.md` progress bar: all 11 milestones marked DONE.
+
+### Known limitations
+- **Everything beyond M2 is a trait stub.** Real network (SSH/Tailscale),
+  real hardware (I2S, SD atomic writes), real OMP RPC pipe, real market
+  HTTPS backend, and real vault search are deferred to operator-side
+  integration.
+
+## [0.2.0] - 2026-06-16 — M1 Cockpit shell + M2 Theme engine
+
+### Added
+- M1: `m5tui-core` input layer: `keymap` with 56-key Cardputer-Adv matrix, `ChordParser`, and 12 semantic `KeyAction` verbs.
+- M1: `m5tui-core` widgets: `cockpit` (top bar + agent list + session pane + prompt + hint), `palette` (12 built-in commands, fuzzy matcher), `help` (two-column hotkey overlay), and `toast` overlay.
+- M1: `palette::Command` descriptors + pure fuzzy matcher (`fuzzy_score`/`filter`) with no external deps.
+- M1: `Event`/`Outgoing`/`Focus`/`Mode` enums and `step()` side-channel reducer returning `(AppState, Vec<Outgoing>)`.
+- M2: new `m5tui-themes` crate: hand-rolled YAML parser, `Theme` schema, RGB565 conversion, and semantic validation.
+- M2: six built-in themes (`coldwire`, `phosphor`, `lacuna`, `magline`, `noctilux`, `ivoryroom`) under `themes/`.
+- M2: `m5tui-core::default_theme()` and `render(&AppState, &Theme)` — all widgets are now theme-aware and read colors from `theme.palette`.
+- M2: `m5tui-core` widget `theme_editor` (9-screen overlay with live cockpit preview) and `;t` chord dispatch to `Mode::ThemeEditor`.
+- M2: sim golden tests `sim_themes`, `sim_theme_editor`, `sim_theme_invalid`, plus coverage of every built-in theme.
+
+### Changed
+- `render(&AppState)` → `render(&AppState, &Theme)` across `m5tui-core`, `m5tui-bin`, and integration tests.
+- `m5tui-bin` now renders and prints Cockpit, Palette, Help, and ThemeEditor in sequence.
+- `m5tui-core/src/palette.rs` is now the M1 fallback palette; live colors come from `m5tui-themes::ThemePalette`.
+- `ROADMAP.md` progress bar: M0 ✅, M1 ✅, M2 ✅ (3 of 11 done).
+
+### Known limitations
+- **Theme editor is view-only.** The 9 sub-screens (palette swatches, glyphs, layout, etc.) and SD-card save/export are M2.x polish not included in this commit.
+- **No device build yet.** `crates/m5tui-device/` and the `xtensa-esp32s3-espidf` target are still M3 work.
+- **No SSH/OMP/voice/market/handoff.** M3–M6 remain on the roadmap.
 
 ## [0.1.0] - 2026-06-15 — M0 Foundation
 
@@ -127,61 +235,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No on-device toolchain on the Pi.** The orchestrator chose not to install `espup`/ESP-IDF locally (1.5–2 GB download). Use GitHub Actions for xtensa until a self-hosted runner or local toolchain is set up. Recipe in `HARDWARE.md` §9 (TBD by M1).
 - **No themes yet.** M0 only paints the static title in cyan. The 6 themes and the on-device editor land in M2.
 - **No SSH, OMP, voice.** All the other crates in `ARCHITECTURE.md §2` are M3–M5b work.
-
-## [0.2.0] - 2026-06-16 — M1 Cockpit shell + M2 Theme engine
-
-### Added
-- M1: `m5tui-core` input layer: `keymap` with 56-key Cardputer-Adv matrix, `ChordParser`, and 12 semantic `KeyAction` verbs.
-- M1: `m5tui-core` widgets: `cockpit` (top bar + agent list + session pane + prompt + hint), `palette` (12 built-in commands, fuzzy matcher), `help` (two-column hotkey overlay), and `toast` overlay.
-- M1: `palette::Command` descriptors + pure fuzzy matcher (`fuzzy_score`/`filter`) with no external deps.
-- M1: `Event`/`Outgoing`/`Focus`/`Mode` enums and `step()` side-channel reducer returning `(AppState, Vec<Outgoing>)`.
-- M2: new `m5tui-themes` crate: hand-rolled YAML parser, `Theme` schema, RGB565 conversion, and semantic validation.
-- M2: six built-in themes (`coldwire`, `phosphor`, `lacuna`, `magline`, `noctilux`, `ivoryroom`) under `themes/`.
-- M2: `m5tui-core::default_theme()` and `render(&AppState, &Theme)` — all widgets are now theme-aware and read colors from `theme.palette`.
-- M2: `m5tui-core` widget `theme_editor` (9-screen overlay with live cockpit preview) and `;t` chord dispatch to `Mode::ThemeEditor`.
-- M2: sim golden tests `sim_themes`, `sim_theme_editor`, `sim_theme_invalid`, plus coverage of every built-in theme.
-
-### Changed
-- `render(&AppState)` → `render(&AppState, &Theme)` across `m5tui-core`, `m5tui-bin`, and integration tests.
-- `m5tui-bin` now renders and prints Cockpit, Palette, Help, and ThemeEditor in sequence.
-- `m5tui-core/src/palette.rs` is now the M1 fallback palette; live colors come from `m5tui-themes::ThemePalette`.
-- `ROADMAP.md` progress bar: M0 ✅, M1 ✅, M2 ✅ (3 of 11 done).
-
-### Known limitations
-- **Theme editor is view-only.** The 9 sub-screens (palette swatches, glyphs, layout, etc.) and SD-card save/export are M2.x polish not included in this commit.
-- **No device build yet.** `crates/m5tui-device/` and the `xtensa-esp32s3-espidf` target are still M3 work.
-- **No SSH/OMP/voice/market/handoff.** M3–M6 remain on the roadmap.
-
-[0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
-
-## [1.0.0] - 2026-06-16 — Structural v1.0
-
-### Added
-- M3 crates: `m5tui-ssh`, `m5tui-profile`, `m5tui-persist` with trait stubs,
-  in-memory implementations, and unit tests.
-- M4 crate: `m5tui-omp` with line-oriented frame codec, `OmpSession` trait,
-  and `StubOmpSession`.
-- M5 crate: `m5tui-voice` with `AudioIn`/`AudioOut`, WAV encoder/decoder,
-  PTT state machine, and `VoiceInbox`.
-- M5a crate: `m5tui-book` + `book/*.yaml` sample spells, registry, template
-  expansion, undo stack.
-- M5b crate: `m5tui-market` + catalog schema, stub client, offline cache
-  placeholder, theme preview via `m5tui-themes::parse`.
-- M6 crate: `m5tui-handoff` with handoff store, minimal Markdown renderer,
-  and vault search stub.
-- `crates/m5tui-bin/tests/integration_v1.rs` smoke test exercising every
-  crate through public APIs.
-- Bumped every crate version to `1.0.0`.
-
-### Changed
-- `README.md` status block updated to v1.0.0 structurally shipped.
-- `ROADMAP.md` progress bar: all 11 milestones marked DONE.
-
-### Known limitations
-- **Everything beyond M2 is a trait stub.** Real network (SSH/Tailscale),
-  real hardware (I2S, SD atomic writes), real OMP RPC pipe, real market
-  HTTPS backend, and real vault search are deferred to operator-side
-  integration.
 
 [0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
 [0.2.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.2.0

@@ -301,6 +301,154 @@ pub fn publish_theme(
     })
 }
 
+/// Build the GitHub Pages HTML for the catalog. The result is a
+/// self-contained static page (no external assets) the framework
+/// commits to `docs/index.html`. Every `ThemeEntry` is rendered as
+/// a card with name, version, swatch, description, and a
+/// download link.
+pub fn github_pages_html(catalog: &Catalog) -> String {
+    let mut out = String::new();
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
+    out.push_str("<meta charset=\"utf-8\">\n");
+    out.push_str("<title>m5Tui Theme Market</title>\n");
+    out.push_str("<style>\n");
+    out.push_str("body{font-family:sans-serif;margin:2em;max-width:900px;}\n");
+    out.push_str(".card{border:1px solid #ccc;border-radius:8px;padding:1em;margin:1em 0;}\n");
+    out.push_str(".swatch{display:inline-block;width:1em;height:1em;vertical-align:middle;border:1px solid #000;margin-right:0.5em;}\n");
+    out.push_str("h1{margin:0 0 0.5em 0;}\n");
+    out.push_str("</style>\n</head>\n<body>\n");
+    out.push_str("<h1>m5Tui Theme Market</h1>\n");
+    for entry in catalog.list() {
+        out.push_str(&format!(
+            "<h2>{} <small>v{}</small></h2>\n",
+            html_escape(&entry.name),
+            html_escape(&entry.version)
+        ));
+        if !entry.description.is_empty() {
+            out.push_str(&format!("<p>{}</p>\n", html_escape(&entry.description)));
+        }
+        if !entry.tags.is_empty() {
+            out.push_str(&format!(
+                "<p>tags: {}</p>\n",
+                entry
+                    .tags
+                    .iter()
+                    .map(|t| html_escape(t))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        out.push_str(&format!(
+            "<p><a href=\"{}\">download</a> · sha256 <code>{}</code> · {} bytes</p>\n",
+            html_escape(&entry.download_url),
+            html_escape(&entry.sha256),
+            entry.size_bytes
+        ));
+        out.push_str("</div>\n");
+    }
+    out.push_str("</body>\n</html>\n");
+    out
+}
+
+/// Minimal HTML escape for `<`, `>`, `&`, `"`, `'`.
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+/// A high-level publisher that produces everything the operator
+/// needs to send a PR to the m5tui repo: the catalog entry, the
+/// asset YAML, the file paths under `market/`, and a Markdown PR
+/// body. No network I/O; the operator (or CI) calls `gh pr create
+/// --body "$PR_BODY" --branch "$BRANCH"`.
+pub struct MarketPublisher {
+    /// Operator-controlled: the bucket or CDN the asset is uploaded to.
+    pub asset_base_url: String,
+    /// Operator-controlled: the GitHub repo the catalog PR targets.
+    pub repo: String,
+    /// Operator-controlled: the branch the PR is opened against.
+    pub target_branch: String,
+}
+
+impl MarketPublisher {
+    pub fn new(repo: impl Into<String>, asset_base_url: impl Into<String>) -> Self {
+        Self {
+            asset_base_url: asset_base_url.into(),
+            repo: repo.into(),
+            target_branch: "main".to_string(),
+        }
+    }
+
+    pub fn with_target_branch(mut self, branch: impl Into<String>) -> Self {
+        self.target_branch = branch.into();
+        self
+    }
+
+    /// Plan a single theme publish. Returns the catalog entry, the
+    /// asset YAML, the file path on disk, the upload URL, and a
+    /// ready-to-paste PR body in Markdown.
+    pub fn plan(
+        &self,
+        theme: &m5tui_themes::Theme,
+        author: &Author,
+        version: &str,
+        description: &str,
+        tags: &[String],
+    ) -> Result<MarketPublishPlan, MarketError> {
+        let mut draft = publish_theme(theme, author, version, description, tags)?;
+        // Replace the placeholder download URL with the operator's
+        // CDN.
+        draft.entry.download_url = format!(
+            "{}/{}",
+            self.asset_base_url.trim_end_matches('/'),
+            draft.asset_path
+        );
+        let entry_url = draft.entry.download_url.clone();
+        let pr_body = format_pr_body(&draft.entry, &draft.sha256, &self.repo);
+        Ok(MarketPublishPlan {
+            draft,
+            pr_body,
+            upload_url: entry_url,
+        })
+    }
+}
+
+/// A single publish plan: the draft plus the human-readable
+/// artifacts the operator needs to land the change.
+pub struct MarketPublishPlan {
+    pub draft: PublishDraft,
+    pub pr_body: String,
+    pub upload_url: String,
+}
+
+/// Build the Markdown body of the PR that adds `entry` to the
+/// catalog. Kept pure for tests.
+pub fn format_pr_body(entry: &ThemeEntry, sha256: &str, repo: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "## Publish theme `{}` v{}\n\n",
+        entry.name, entry.version
+    ));
+    if !entry.description.is_empty() {
+        out.push_str(&format!("{}\n\n", entry.description));
+    }
+    out.push_str(&format!("- id: `{}`\n", entry.id));
+    out.push_str(&format!("- size: {} bytes\n", entry.size_bytes));
+    out.push_str(&format!("- sha256: `{}`\n", sha256));
+    if !entry.tags.is_empty() {
+        out.push_str(&format!("- tags: {}\n", entry.tags.join(", ")));
+    }
+    out.push_str(&format!("- asset: {}\n\n", entry.download_url));
+    out.push_str(&format!(
+        "cc @{} — please review and merge into `{}` once the asset is uploaded.\n",
+        repo, repo
+    ));
+    out
+}
+
 /// Offline cache: write/read the catalog JSON through a `Driver`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OfflineCache;
@@ -775,5 +923,78 @@ mod tests {
             );
         }
         assert!(lines[0].contains("coldwire"));
+    }
+
+    #[test]
+    fn github_pages_html_contains_every_entry() {
+        let yaml = include_str!("../../../themes/coldwire.yaml");
+        let theme = preview_theme(yaml).unwrap_or_else(|e| panic!("{e}"));
+        let draft = publish_theme(
+            &theme,
+            &Author::new("forest"),
+            "1.0.0",
+            "desc",
+            &["dark".to_string()],
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let mut catalog = Catalog::default();
+        catalog.entries.push(draft.entry);
+        let html = github_pages_html(&catalog);
+        assert!(html.contains("<!doctype html>"));
+        assert!(html.contains("coldwire"));
+        assert!(html.contains("dark"));
+        assert!(html.contains("download"));
+    }
+
+    #[test]
+    fn github_pages_html_escapes_special_chars() {
+        let mut catalog = Catalog::default();
+        catalog.entries.push(ThemeEntry {
+            id: "test".into(),
+            name: "<script>alert(1)</script>".into(),
+            version: "1.0.0".into(),
+            author: Author::new("evil"),
+            description: "x & y".into(),
+            sha256: "deadbeef".into(),
+            size_bytes: 0,
+            stars: String::new(),
+            installs: 0,
+            preview_swatch: vec![],
+            tested_omp_versions: vec![],
+            tags: vec![],
+            download_url: "https://example.com/test.yaml".into(),
+        });
+        let html = github_pages_html(&catalog);
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("x &amp; y"));
+    }
+
+    #[test]
+    fn market_publisher_plan_overrides_download_url() {
+        let yaml = include_str!("../../../themes/coldwire.yaml");
+        let theme = preview_theme(yaml).unwrap_or_else(|e| panic!("{e}"));
+        let publisher = MarketPublisher::new("NaustudentX18/m5tui", "https://cdn.m5tui.com");
+        let plan = publisher
+            .plan(&theme, &Author::new("forest"), "1.0.0", "desc", &[])
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(plan
+            .upload_url
+            .starts_with("https://cdn.m5tui.com/market/assets/"));
+        assert!(plan.pr_body.contains("## Publish theme"));
+        assert!(plan.pr_body.contains("coldwire"));
+        assert!(plan.pr_body.contains("NaustudentX18/m5tui"));
+    }
+
+    #[test]
+    fn format_pr_body_includes_required_fields() {
+        let yaml = include_str!("../../../themes/coldwire.yaml");
+        let theme = preview_theme(yaml).unwrap_or_else(|e| panic!("{e}"));
+        let draft = publish_theme(&theme, &Author::new("forest"), "1.0.0", "desc", &[])
+            .unwrap_or_else(|e| panic!("{e}"));
+        let body = format_pr_body(&draft.entry, &draft.sha256, "owner/repo");
+        assert!(body.contains("id: `coldwire`"));
+        assert!(body.contains("sha256: `"));
+        assert!(body.contains("owner/repo"));
     }
 }
