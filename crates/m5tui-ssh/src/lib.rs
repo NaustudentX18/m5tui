@@ -1,8 +1,10 @@
 //! `m5tui-ssh` — SSH client abstraction for m5Tui.
 //!
-//! M3 only defines traits and a `StubSshClient` that returns canned
-//! responses. A real `russh`-based client will live behind the same
-//! traits in a future `m5tui-ssh-russh` crate or device-specific impl.
+//! M3 defines the `SshClient` trait and a `StubSshClient` for tests
+//! and the host simulator. The real `russh`-backed client lives in
+//! `russh_client::RusshClient` and is selected by the framework at
+//! startup.
+pub mod russh_client;
 
 use std::collections::HashMap;
 

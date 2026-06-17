@@ -28,6 +28,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in addition to the `device` feature build (which is allowed to
   fail with a clear warning until M5GFX bindings are added).
 
+## [1.9.0] - 2026-06-17 — RusshClient + known_hosts + MockSshServer
+
+### Added
+- `m5tui-ssh::russh_client::RusshClient` — real `russh`-backed
+  `SshClient` implementation. Implements the full trait
+  surface (connect, exec, pty, scp_upload, scp_download,
+  disconnect), mapping internal `RusshError` to the public
+  `SshError`.
+- `russh_client::Endpoint::from_profile` — host/port parser with
+  default port 22.
+- `russh_client::verify_known_host` — pure known_hosts checker
+  with hex-prefix matching. Returns `Known` / `Unknown` /
+  `HostKeyRejected`.
+- `russh_client::known_hosts_entry` — builds a known_hosts line
+  from host/port/keytype/key bytes.
+- `russh_client::MockSshServer` — in-process server stub for
+  tests; records connect attempts, learned entries, advertises a
+  deterministic 8-byte key prefix.
 
 ## [1.4.0] - 2026-06-17 — Theme editor save, doctor report, VU meter, voice playback
 
