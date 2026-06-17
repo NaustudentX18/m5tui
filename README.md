@@ -29,6 +29,21 @@ it understands agents, voice, and the device.
 
 🟢 **v1.0.0 STRUCTURALLY SHIPPED — 2026-06-16** — M0 foundation, M1 cockpit shell, M2 theme engine, M3–M6 trait stubs, and v1.0 integration. Native `cargo test --workspace` is green. See `CHANGELOG.md` and `ROADMAP.md`.
 
+## What's not done yet
+
+M3–M6 are structurally in place as trait stubs, but none of them talk to real hardware or a real network yet:
+
+- **M3 — SSH + profiles:** no `russh` TCP/Tailscale connection to `aiserver-1`; no real PTY, `known_hosts`, `scp`, or first-boot Wi-Fi wizard.
+- **M4 — OMP integration:** no JSON-RPC pipe to `omp --mode rpc`; no live model/context/rate pane, tool-call cards, or `;a` session switching against a real OMP instance.
+- **M5 — Voice / PTT:** no I2S mic capture on the Cardputer-Adv; no WAV save to SD card, no `scp` push to `aiserver-1`, no ES8311/NS4150B playback, no live VU meter.
+- **M5a — Book of Commands:** the YAML spells and registry exist, but there is no on-device author mode, no SD-card override storage, and no runtime casting against a live OMP/SSH backend.
+- **M5b — Community Theme Market:** the catalog schema and offline placeholder are present, but there is no real HTTPS client, no GitHub Pages / Backblaze B2 backend, and no publish flow.
+- **M6 — Handoff + vault:** Markdown renderer and picker stubs exist, but there is no SFTP fetch of project `agent-prompt.md` files and no `obsidian-memory search` invocation over SSH.
+- **Device drivers:** no `xtensa-esp32s3-espidf` build, no LCD/keyboard/audio SD-card atomic-write drivers. These require the ESP toolchain and physical hardware.
+
+All of the above is the remaining operator-side integration work. The Rust workspace, tests, CI, and trait contracts are ready for it.
+
+
 M0 is "one fully done" per the user instruction: workspace scaffold, `m5tui-core` library, simulator backend that renders a 40x16 frame to a 240x135 RGBA buffer, unit + integration tests, CI matrix. The `m5Tui v0.1.0` title renders deterministically.
 
 Round 1 SWAT decisions remain locked (Rust stack, device-native standalone v1, OMP 15.13.3 pinned, MIT, `NaustudentX18/m5tui`, voice in v1, Book of Commands required, Community Theme Market required, 6 pre-installed themes, `Coldwire` default, sound on in 4 of 6 themes). Read [`PLANNING.md`](./PLANNING.md) for the full SWAT brief.

@@ -6,11 +6,22 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish = false
-description = "ESP32-S3 / M5GFX device render target for m5Tui."
+description = "ESP32-S3 / M5GFX device trait boundary for m5Tui."
 
 [lints]
 workspace = true
 
+[features]
+default = []
+# Enable real ESP32 drivers.  This feature is additive: host code can still
+# use the crate, but any item under `m5tui_device::device` becomes available.
+device = []
+# Real device dependencies will be added here once the ESP toolchain is
+# available, e.g.:
+# device = ["dep:esp-idf-sys", "dep:esp-idf-hal"]
+
 [dependencies]
 m5tui-core = { path = "../m5tui-core" }
 m5tui-themes = { path = "../m5tui-themes" }
+# esp-idf-sys = { version = "0.36", optional = true }
+# esp-idf-hal = { version = "0.44", optional = true }

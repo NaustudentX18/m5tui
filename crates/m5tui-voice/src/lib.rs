@@ -1,8 +1,10 @@
-//! `m5tui-voice` — voice memo / PTT stubs for m5Tui.
+//! `m5tui-voice` — voice memo / PTT for m5Tui.
 //!
 //! M5 defines audio traits, a minimal WAV encoder/decoder, a PTT state
-//! machine, and an in-memory inbox. Real I2S/ES8311 drivers are deferred
-//! to the hardware phase.
+//! machine, and a directory-backed voice inbox. Real I2S/ES8311 drivers are
+//! deferred to the hardware phase behind the `device` feature.
+
+use std::path::{Path, PathBuf};
 
 /// One mono PCM16 sample.
 pub type Sample = i16;
@@ -133,12 +135,25 @@ impl AudioIn for MemoryIn {
     }
 }
 
+#[cfg(feature = "host-audio")]
+mod host_audio;
+
+#[cfg(feature = "host-audio")]
+pub use host_audio::{HostAudioIn, HostAudioOut};
+
+#[cfg(feature = "device")]
+mod device_audio;
+
+#[cfg(feature = "device")]
+pub use device_audio::{DeviceAudioIn, DeviceAudioOut};
+
 /// Push-to-talk state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PttState {
     Idle,
     Recording { samples: usize, max: usize },
     Playing { samples: usize, max: usize },
+    Menu,
 }
 
 impl PttState {
@@ -146,7 +161,7 @@ impl PttState {
         Self::Idle
     }
 
-    pub fn start_recording(self, max_samples: usize) -> Result<Self, VoiceError> {
+    pub fn hold_record(self, max_samples: usize) -> Result<Self, VoiceError> {
         match self {
             Self::Idle => Ok(Self::Recording {
                 samples: 0,
@@ -156,10 +171,18 @@ impl PttState {
         }
     }
 
-    pub fn stop_recording(self) -> Result<(Self, usize), VoiceError> {
+    pub fn release(self) -> Result<Self, VoiceError> {
         match self {
-            Self::Recording { samples, .. } => Ok((Self::Idle, samples)),
+            Self::Recording { .. } => Ok(Self::Idle),
             other => Err(VoiceError::Ptt(format!("not recording: {other:?}"))),
+        }
+    }
+
+    pub fn tap(self) -> Result<Self, VoiceError> {
+        match self {
+            Self::Idle => Ok(Self::Menu),
+            Self::Menu => Ok(Self::Idle),
+            other => Err(VoiceError::Ptt(format!("cannot tap from {other:?}"))),
         }
     }
 
@@ -271,6 +294,26 @@ pub struct VoiceMemo {
     pub pushed: bool,
 }
 
+impl VoiceMemo {
+    pub fn from_wav(id: String, created: u64, wav: &[u8]) -> Result<Self, VoiceError> {
+        let (samples, sample_rate) = Wav::decode_mono_pcm16(wav)?;
+        Ok(Self {
+            id,
+            created,
+            samples,
+            sample_rate,
+            pushed: false,
+        })
+    }
+
+    pub fn duration_ms(&self) -> u64 {
+        if self.sample_rate == 0 {
+            return 0;
+        }
+        (self.samples.len() as u64 * 1000) / self.sample_rate as u64
+    }
+}
+
 /// Inbox abstraction.
 pub trait VoiceInbox: Send + Sync {
     fn list(&self) -> Vec<&VoiceMemo>;
@@ -278,17 +321,23 @@ pub trait VoiceInbox: Send + Sync {
     fn add(&mut self, memo: VoiceMemo) -> Result<(), VoiceError>;
     fn mark_pushed(&mut self, id: &str) -> Result<(), VoiceError>;
     fn remove(&mut self, id: &str) -> Result<(), VoiceError>;
+    fn enqueue_plan(&mut self, id: &str, command: &str) -> Result<String, VoiceError>;
 }
 
 /// In-memory inbox.
 #[derive(Debug, Default, Clone)]
 pub struct InMemoryInbox {
     memos: Vec<VoiceMemo>,
+    plan_queue: Vec<String>,
 }
 
 impl InMemoryInbox {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn plan_queue(&self) -> &[String] {
+        &self.plan_queue
     }
 }
 
@@ -325,11 +374,130 @@ impl VoiceInbox for InMemoryInbox {
         self.memos.remove(idx);
         Ok(())
     }
+
+    fn enqueue_plan(&mut self, id: &str, command: &str) -> Result<String, VoiceError> {
+        if self.get(id).is_none() {
+            return Err(VoiceError::NotFound(id.to_string()));
+        }
+        let queued = format!("{command} --voice-memo {id}");
+        self.plan_queue.push(queued.clone());
+        Ok(queued)
+    }
+}
+
+/// Directory-backed inbox that discovers `.wav` files on demand.
+pub struct DirInbox {
+    dir: PathBuf,
+    memos: Vec<VoiceMemo>,
+    plan_queue: Vec<String>,
+}
+
+impl DirInbox {
+    pub fn new(dir: impl AsRef<Path>) -> Self {
+        Self {
+            dir: dir.as_ref().to_path_buf(),
+            memos: Vec::new(),
+            plan_queue: Vec::new(),
+        }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn plan_queue(&self) -> &[String] {
+        &self.plan_queue
+    }
+
+    pub fn refresh(&mut self) -> Result<(), VoiceError> {
+        self.memos.clear();
+        if !self.dir.exists() {
+            return Ok(());
+        }
+        let mut entries: Vec<_> = std::fs::read_dir(&self.dir)
+            .map_err(|e| VoiceError::Io(e.to_string()))?
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("wav"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let id = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let created = entry
+                .metadata()
+                .map_err(|e| VoiceError::Io(e.to_string()))?
+                .modified()
+                .map_err(|e| VoiceError::Io(e.to_string()))?
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let data = std::fs::read(&path).map_err(|e| VoiceError::Io(e.to_string()))?;
+            if let Ok(memo) = VoiceMemo::from_wav(id, created, &data) {
+                self.memos.push(memo);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl VoiceInbox for DirInbox {
+    fn list(&self) -> Vec<&VoiceMemo> {
+        self.memos.iter().collect()
+    }
+
+    fn get(&self, id: &str) -> Option<&VoiceMemo> {
+        self.memos.iter().find(|m| m.id == id)
+    }
+
+    fn add(&mut self, memo: VoiceMemo) -> Result<(), VoiceError> {
+        self.memos.push(memo);
+        Ok(())
+    }
+
+    fn mark_pushed(&mut self, id: &str) -> Result<(), VoiceError> {
+        let memo = self
+            .memos
+            .iter_mut()
+            .find(|m| m.id == id)
+            .ok_or_else(|| VoiceError::NotFound(id.to_string()))?;
+        memo.pushed = true;
+        Ok(())
+    }
+
+    fn remove(&mut self, id: &str) -> Result<(), VoiceError> {
+        let idx = self
+            .memos
+            .iter()
+            .position(|m| m.id == id)
+            .ok_or_else(|| VoiceError::NotFound(id.to_string()))?;
+        self.memos.remove(idx);
+        Ok(())
+    }
+
+    fn enqueue_plan(&mut self, id: &str, command: &str) -> Result<String, VoiceError> {
+        if self.get(id).is_none() {
+            return Err(VoiceError::NotFound(id.to_string()));
+        }
+        let queued = format!("{command} --voice-memo {id}");
+        self.plan_queue.push(queued.clone());
+        Ok(queued)
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn wav_round_trip() {
@@ -348,9 +516,38 @@ mod tests {
     }
 
     #[test]
+    fn memo_from_wav_round_trip() {
+        let samples: Vec<Sample> = (0..80).map(|i| i as i16 * 50).collect();
+        let wav = Wav::encode_mono_pcm16(&samples, 16000);
+        let memo = VoiceMemo::from_wav("m1".to_string(), 1, &wav).unwrap();
+        assert_eq!(memo.sample_rate, 16000);
+        assert_eq!(memo.samples, samples);
+        assert_eq!(memo.duration_ms(), 5);
+    }
+
+    #[test]
+    fn ptt_idle_to_recording_to_idle() {
+        let mut ptt = PttState::new();
+        assert_eq!(ptt, PttState::Idle);
+        ptt = ptt.hold_record(100).unwrap();
+        assert!(matches!(ptt, PttState::Recording { .. }));
+        ptt = ptt.release().unwrap();
+        assert_eq!(ptt, PttState::Idle);
+    }
+
+    #[test]
+    fn ptt_tap_opens_menu() {
+        let mut ptt = PttState::new();
+        ptt = ptt.tap().unwrap();
+        assert_eq!(ptt, PttState::Menu);
+        ptt = ptt.tap().unwrap();
+        assert_eq!(ptt, PttState::Idle);
+    }
+
+    #[test]
     fn ptt_recording_stops_at_max() {
         let mut ptt = PttState::new()
-            .start_recording(10)
+            .hold_record(10)
             .unwrap_or_else(|e| panic!("{e}"));
         let done = ptt.record_samples(12).unwrap_or_else(|e| panic!("{e}"));
         assert!(done);
@@ -361,7 +558,13 @@ mod tests {
         let ptt = PttState::new()
             .start_playing(10)
             .unwrap_or_else(|e| panic!("{e}"));
-        assert!(ptt.start_recording(10).is_err());
+        assert!(ptt.hold_record(10).is_err());
+    }
+
+    #[test]
+    fn ptt_cannot_tap_while_recording() {
+        let ptt = PttState::new().hold_record(10).unwrap();
+        assert!(ptt.tap().is_err());
     }
 
     #[test]
@@ -379,5 +582,77 @@ mod tests {
         assert!(!inbox.get("m1").unwrap_or_else(|| panic!("missing")).pushed);
         inbox.mark_pushed("m1").unwrap_or_else(|e| panic!("{e}"));
         assert!(inbox.get("m1").unwrap_or_else(|| panic!("missing")).pushed);
+    }
+
+    #[test]
+    fn inbox_enqueue_plan_command() {
+        let mut inbox = InMemoryInbox::new();
+        inbox
+            .add(VoiceMemo {
+                id: "m1".to_string(),
+                created: 1,
+                samples: vec![1, 2, 3],
+                sample_rate: 16000,
+                pushed: false,
+            })
+            .unwrap();
+        let queued = inbox
+            .enqueue_plan("m1", "advdeck-bridge plan --project garden")
+            .unwrap();
+        assert_eq!(
+            queued,
+            "advdeck-bridge plan --project garden --voice-memo m1"
+        );
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{}_{}", prefix, std::process::id()))
+    }
+
+    #[test]
+    fn dir_inbox_discovers_wav_files() {
+        let tmp = temp_dir("m5tui_voice_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let wav = Wav::encode_mono_pcm16(&[42i16; 160], 16000);
+        let path = tmp.join("memo.wav");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            f.write_all(&wav).unwrap();
+        }
+        let mut inbox = DirInbox::new(&tmp);
+        inbox.refresh().unwrap();
+        let list = inbox.list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "memo");
+        assert_eq!(list[0].samples.len(), 160);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn dir_inbox_enqueue_plan_uses_stem_id() {
+        let tmp = temp_dir("m5tui_voice_plan_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let wav = Wav::encode_mono_pcm16(&[1i16; 16], 16000);
+        let path = tmp.join("2026-06-15T22-04-11Z.wav");
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            f.write_all(&wav).unwrap();
+        }
+        let mut inbox = DirInbox::new(&tmp);
+        inbox.refresh().unwrap();
+        let queued = inbox
+            .enqueue_plan(
+                "2026-06-15T22-04-11Z",
+                "advdeck-bridge plan --project garden",
+            )
+            .unwrap();
+        assert_eq!(
+            queued,
+            "advdeck-bridge plan --project garden --voice-memo 2026-06-15T22-04-11Z"
+        );
+        assert_eq!(inbox.plan_queue().len(), 1);
+        std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

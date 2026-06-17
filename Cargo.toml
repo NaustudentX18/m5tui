@@ -27,5 +27,9 @@ publish = false
 unsafe_code = "deny"
 
 [workspace.lints.clippy]
-unwrap_used = "warn"
-expect_used = "warn"
+# `unwrap()`/`expect()` are useful in test code for setup errors; the lib
+# crates police themselves with `#![deny(...)]` if needed.
+unwrap_used = "allow"
+expect_used = "allow"
+
+

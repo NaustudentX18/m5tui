@@ -13,16 +13,20 @@
 M0  ████████████  Foundation       ✅ DONE
 M1  ████████████  Cockpit shell    ✅ DONE
 M2  ████████████  Theme engine     ✅ DONE
-M3  ████████████  SSH + profiles   ✅ DONE (trait stubs)
-M4  ████████████  OMP integration  ✅ DONE (trait stubs)
-M5  ████████████  Voice / PTT      ✅ DONE (trait stubs)
-M5a ████████████  Book of Commands ✅ DONE (trait stubs)
-M5b ████████████  Community Market ✅ DONE (trait stubs)
-M6  ████████████  Handoff + vault  ✅ DONE (trait stubs)
-v1  ████████████  v1.0             ✅ DONE
+M3  ████████████  SSH + profiles   STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+M4  ████████████  OMP integration  STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+M5  ████████████  Voice / PTT      STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+M5a ████████████  Book of Commands STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+M5b ████████████  Community Market STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+M6  ████████████  Handoff + vault  STRUCTURAL ✅ / FUNCTIONAL 🟡 (trait stubs)
+v1  ████████████  v1.0             STRUCTURAL ✅ / FUNCTIONAL 🟡
 ```
 
-(11 of 11 milestones done — M0–M6, M5a, M5b, v1.0.)
+(11 of 11 milestones structurally done — M0–M2 are functionally done; M3–M6 + v1.0 have trait contracts and tests but still need real hardware/network integration.)
+
+> **Note:** "Structural ✅" means the crate, trait, unit tests, and CI wiring exist. "Functional 🟡" means no real SSH/Tailscale connection, no real `omp --mode rpc` pipe, no I2S audio/SD-card drivers, no live HTTPS market backend, and no real vault search over SSH. That operator-side integration is the remaining work.
+
+(Previously all 11 were labelled "DONE"; the labels were updated to keep the roadmap honest.)
 
 ---
 

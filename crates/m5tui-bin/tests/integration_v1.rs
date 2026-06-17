@@ -35,8 +35,10 @@ fn v1_pipeline_smoke() {
             host: "aiserver-1.tailnet.ts.net".to_string(),
             user: "pi".to_string(),
             key_path: "/key".to_string(),
+            port: 22,
             jump_profile_id: None,
             omp_profile: "default".to_string(),
+            default: false,
         })
         .unwrap_or_else(|e| panic!("{e}"));
     profiles
