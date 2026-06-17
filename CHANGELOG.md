@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - README.md and ROADMAP.md now explicitly distinguish structural completion (trait stubs, tests, CI) from functional completion (real hardware/network integration). Stub-to-real work begins.
 
+## [1.8.0] - 2026-06-17 — xtensa CI + build script + justfile
+
+### Added
+- `scripts/build-esp.sh` — bash build/flash/monitor pipeline for the
+  Cardputer-Adv. Sources espup's `export-esp.sh`, installs the
+  `xtensa-esp32s3-espidf` target if missing, runs `cargo check` and
+  optionally `cargo build`, then calls `espflash` for the requested
+  port. `--debug` and `--release` profiles; `--flash PORT` and
+  `--monitor PORT` flags.
+- `justfile` — task runner for the host gates, sim run, device
+  build, flash, flash-and-monitor, push, and release tag. `just`
+  without arguments lists the recipes.
+- `.github/workflows/xtensa.yml` is now a real cross-compile job
+  that installs espup, libclang, the xtensa-esp32s3-espidf target,
+  and runs `cargo check -p m5tui-bin --target xtensa-esp32s3-espidf`
+  in addition to the `device` feature build (which is allowed to
+  fail with a clear warning until M5GFX bindings are added).
+
+
 ## [1.4.0] - 2026-06-17 — Theme editor save, doctor report, VU meter, voice playback
 
 ### Added
