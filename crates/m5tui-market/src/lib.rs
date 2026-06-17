@@ -209,6 +209,28 @@ pub fn render_preview(theme: &m5tui_themes::Theme) -> m5tui_core::Frame {
     m5tui_core::render(&state, theme)
 }
 
+/// Build a 4-line ASCII summary of a previewed theme for the
+/// catalog picker overlay. Returns the name, swatch colours as
+/// 16-bit hex, brightness, and animation level. Always 4 lines,
+/// never wider than 40 columns.
+pub fn preview_summary(theme: &m5tui_themes::Theme) -> [String; 4] {
+    [
+        format!("name:  {} (v{})", theme.name, theme.brightness),
+        format!(
+            "fg:    #{:04x}  bg:    #{:04x}",
+            theme.palette.fg.0, theme.palette.bg.0
+        ),
+        format!(
+            "accent #{:04x}  dim:   #{:04x}",
+            theme.palette.accent.0, theme.palette.dim.0
+        ),
+        format!(
+            "anim:  level {}        ok:    #{:04x}",
+            theme.animation.level, theme.palette.ok.0
+        ),
+    ]
+}
+
 /// Install a theme YAML into the persist store under `themes/{id}.yaml`.
 /// Idempotent: writing the same content twice is a no-op.
 pub fn install_theme(
@@ -737,5 +759,21 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         let reparsed = preview_theme(&draft.asset_yaml).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(reparsed.name, theme.name);
+    }
+
+    #[test]
+    fn preview_summary_lists_four_short_lines() {
+        let yaml = include_str!("../../../themes/coldwire.yaml");
+        let theme = preview_theme(yaml).unwrap_or_else(|e| panic!("{e}"));
+        let lines = preview_summary(&theme);
+        assert_eq!(lines.len(), 4);
+        for line in &lines {
+            assert!(
+                line.len() <= 40,
+                "line too long: '{line}' ({} chars)",
+                line.len()
+            );
+        }
+        assert!(lines[0].contains("coldwire"));
     }
 }
