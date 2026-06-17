@@ -282,3 +282,100 @@ fn step_outgoing_close_overlay_returns_to_cockpit() {
     let (s2, _) = step(s, Event::Outgoing(Outgoing::CloseOverlay));
     assert_eq!(s2.mode, Mode::Cockpit);
 }
+#[test]
+fn step_open_profile_picker_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenProfilePicker));
+    assert_eq!(s2.mode, Mode::ProfilePicker);
+    assert!(outs.contains(&Outgoing::OpenProfilePicker));
+}
+
+#[test]
+fn step_open_book_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenBook));
+    assert_eq!(s2.mode, Mode::Book);
+    assert!(outs.contains(&Outgoing::OpenBook));
+}
+
+#[test]
+fn step_open_voice_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenVoice));
+    assert_eq!(s2.mode, Mode::Voice);
+    assert!(outs.contains(&Outgoing::OpenVoice));
+}
+
+#[test]
+fn step_open_first_boot_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenFirstBoot));
+    assert_eq!(s2.mode, Mode::FirstBoot);
+    assert!(outs.contains(&Outgoing::OpenFirstBoot));
+}
+
+#[test]
+fn step_open_settings_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenSettings));
+    assert_eq!(s2.mode, Mode::Settings);
+    assert!(outs.contains(&Outgoing::OpenSettings));
+}
+
+#[test]
+fn step_run_doctor_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::RunDoctor));
+    assert_eq!(s2.mode, Mode::Doctor);
+    assert!(outs.contains(&Outgoing::RunDoctor));
+}
+
+#[test]
+fn step_open_handoff_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenHandoff));
+    assert_eq!(s2.mode, Mode::Handoff);
+    assert!(outs.contains(&Outgoing::OpenHandoff));
+}
+
+#[test]
+fn step_open_memory_changes_mode() {
+    let s = AppState::default();
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenMemory));
+    assert_eq!(s2.mode, Mode::Memory);
+    assert!(outs.contains(&Outgoing::OpenMemory));
+}
+
+#[test]
+fn step_save_memo_emits_outgoing() {
+    let s = AppState {
+        prompt: "remember the milk".into(),
+        ..AppState::default()
+    };
+    let (s2, outs) = step(s, Event::Key(KeyAction::SaveMemo));
+    assert!(outs.contains(&Outgoing::SaveMemo("remember the milk".into())));
+    assert_eq!(s2.prompt, "");
+}
+
+#[test]
+fn step_save_memo_ignores_empty_prompt() {
+    let s = AppState {
+        prompt: "".into(),
+        ..AppState::default()
+    };
+    let (s2, outs) = step(s, Event::Key(KeyAction::SaveMemo));
+    assert!(outs.is_empty());
+    assert_eq!(s2.prompt, "");
+}
+
+#[test]
+fn step_overlay_open_ignored_when_not_in_cockpit() {
+    // Once an overlay is open, opening another should be a no-op.
+    let s = AppState {
+        mode: Mode::Palette,
+        ..AppState::default()
+    };
+    let (s2, outs) = step(s, Event::Key(KeyAction::OpenBook));
+    assert_eq!(s2.mode, Mode::Palette);
+    assert!(!outs.contains(&Outgoing::OpenBook));
+}

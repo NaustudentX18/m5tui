@@ -69,6 +69,15 @@ pub fn parse_chord(prev: Option<char>, new: char) -> Option<KeyAction> {
             '?' => Some(KeyAction::Help),
             '/' => Some(KeyAction::Palette),
             't' => Some(KeyAction::OpenThemeEditor),
+            'p' => Some(KeyAction::OpenProfilePicker),
+            'b' => Some(KeyAction::OpenBook),
+            'v' => Some(KeyAction::OpenVoice),
+            'n' => Some(KeyAction::OpenFirstBoot),
+            's' => Some(KeyAction::OpenSettings),
+            'D' => Some(KeyAction::RunDoctor),
+            'h' => Some(KeyAction::OpenHandoff),
+            'm' => Some(KeyAction::OpenMemory),
+            'w' => Some(KeyAction::SaveMemo),
             ';' => Some(KeyAction::Char(';')),
             c => Some(KeyAction::Char(c)),
         },
@@ -135,7 +144,7 @@ mod tests {
 
     #[test]
     fn chord_unknown_char_passes_through() {
-        assert_eq!(parse_chord(Some(';'), 'h'), Some(KeyAction::Char('h')));
+        assert_eq!(parse_chord(Some(';'), 'x'), Some(KeyAction::Char('x')));
     }
 
     #[test]
@@ -149,5 +158,53 @@ mod tests {
         // is then expected to stash the `;` and dispatch the next key
         // through `parse_chord(Some(';'), next)`.
         assert_eq!(parse_chord(None, ';'), Some(KeyAction::Palette));
+    }
+
+    #[test]
+    fn chord_p_is_profile_picker() {
+        assert_eq!(
+            parse_chord(Some(';'), 'p'),
+            Some(KeyAction::OpenProfilePicker)
+        );
+    }
+
+    #[test]
+    fn chord_b_is_book() {
+        assert_eq!(parse_chord(Some(';'), 'b'), Some(KeyAction::OpenBook));
+    }
+
+    #[test]
+    fn chord_v_is_voice() {
+        assert_eq!(parse_chord(Some(';'), 'v'), Some(KeyAction::OpenVoice));
+    }
+
+    #[test]
+    fn chord_n_is_first_boot() {
+        assert_eq!(parse_chord(Some(';'), 'n'), Some(KeyAction::OpenFirstBoot));
+    }
+
+    #[test]
+    fn chord_s_is_settings() {
+        assert_eq!(parse_chord(Some(';'), 's'), Some(KeyAction::OpenSettings));
+    }
+
+    #[test]
+    fn chord_capital_d_is_doctor() {
+        assert_eq!(parse_chord(Some(';'), 'D'), Some(KeyAction::RunDoctor));
+    }
+
+    #[test]
+    fn chord_h_is_handoff() {
+        assert_eq!(parse_chord(Some(';'), 'h'), Some(KeyAction::OpenHandoff));
+    }
+
+    #[test]
+    fn chord_m_is_memory() {
+        assert_eq!(parse_chord(Some(';'), 'm'), Some(KeyAction::OpenMemory));
+    }
+
+    #[test]
+    fn chord_w_is_save_memo() {
+        assert_eq!(parse_chord(Some(';'), 'w'), Some(KeyAction::SaveMemo));
     }
 }

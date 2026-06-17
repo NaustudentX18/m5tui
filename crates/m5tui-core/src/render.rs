@@ -142,6 +142,18 @@ pub fn render(state: &AppState, theme: &m5tui_themes::Theme) -> Frame {
         crate::app::Mode::Palette => widgets::palette::render(&mut frame, state, theme),
         crate::app::Mode::Help => widgets::help::render(&mut frame, state, theme),
         crate::app::Mode::ThemeEditor => widgets::theme_editor::render(&mut frame, state, theme),
+        crate::app::Mode::ProfilePicker => {
+            widgets::overlay::render_profile_picker(&mut frame, state, theme)
+        }
+        crate::app::Mode::Book => widgets::overlay::render_book(&mut frame, state, theme),
+        crate::app::Mode::Voice => widgets::overlay::render_voice(&mut frame, state, theme),
+        crate::app::Mode::FirstBoot => {
+            widgets::overlay::render_first_boot(&mut frame, state, theme)
+        }
+        crate::app::Mode::Settings => widgets::overlay::render_settings(&mut frame, state, theme),
+        crate::app::Mode::Doctor => widgets::overlay::render_doctor(&mut frame, state, theme),
+        crate::app::Mode::Handoff => widgets::overlay::render_handoff(&mut frame, state, theme),
+        crate::app::Mode::Memory => widgets::overlay::render_memory(&mut frame, state, theme),
     }
     widgets::toast::render(&mut frame, state, theme);
     frame

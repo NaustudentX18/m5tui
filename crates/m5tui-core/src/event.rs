@@ -27,6 +27,24 @@ pub enum KeyAction {
     Help,
     /// Open the on-device theme editor. Triggered by the `;t` chord.
     OpenThemeEditor,
+    /// Open the profile picker. Triggered by the `;p` chord.
+    OpenProfilePicker,
+    /// Open the book of commands. Triggered by the `;b` chord.
+    OpenBook,
+    /// Open the voice menu. Triggered by the `;v` chord.
+    OpenVoice,
+    /// Open the first-boot wizard. Triggered by the `;n` chord.
+    OpenFirstBoot,
+    /// Open the device settings screen. Triggered by the `;s` chord.
+    OpenSettings,
+    /// Run the doctor self-check. Triggered by the `;D` chord.
+    RunDoctor,
+    /// Open the handoff picker. Triggered by the `;h` chord.
+    OpenHandoff,
+    /// Open the memory/vault search. Triggered by the `;m` chord.
+    OpenMemory,
+    /// Save a memo. Triggered by the `;w` chord.
+    SaveMemo,
     /// Pop the current overlay, or in the cockpit move focus to the prompt.
     Esc,
     /// Submit the prompt or confirm a selection.
@@ -67,6 +85,28 @@ pub enum Outgoing {
     /// The user pressed Tab; the framework may want to play a focus
     /// change sound or update a status line.
     CycleFocus(Focus),
+    /// Open the profile picker overlay.
+    OpenProfilePicker,
+    /// Open the book of commands overlay.
+    OpenBook,
+    /// Open the voice menu overlay.
+    OpenVoice,
+    /// Open the first-boot wizard overlay.
+    OpenFirstBoot,
+    /// Open the device settings overlay.
+    OpenSettings,
+    /// Run the doctor self-check and render the scoreboard.
+    RunDoctor,
+    /// Open the handoff picker overlay.
+    OpenHandoff,
+    /// Open the memory/vault search overlay.
+    OpenMemory,
+    /// Save a memo note; the framework should append to /sd/m5tui/memos/&lt;date&gt;.md.
+    SaveMemo(String),
+    /// Run a profile pick result — `id` is the selected profile identifier.
+    PickProfile(String),
+    /// Run a book spell — `id` is the selected spell identifier.
+    RunSpell(String),
 }
 
 /// All events the reducer accepts. `Tick` and `Quit` were M0; everything

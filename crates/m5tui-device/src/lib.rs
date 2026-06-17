@@ -101,12 +101,11 @@ mod tests {
         // HostKeyboard polls one byte at a time. Bare ';' is reported as
         // Palette and stashed internally; the next char is resolved as a
         // chord via m5tui_core::keymap::parse_chord.
-        // Per the keymap, only ;?/;t/;; are special — ;h falls through to Char('h').
-        let input = ";h;/tx";
+        let input = ";?;/tx";
         let mut kb = HostKeyboard::new(Cursor::new(input.as_bytes()));
 
         assert_eq!(kb.poll().unwrap(), Some(KeyAction::Palette)); // lone ;
-        assert_eq!(kb.poll().unwrap(), Some(KeyAction::Char('h'))); // ;h -> 'h'
+        assert_eq!(kb.poll().unwrap(), Some(KeyAction::Help)); // ;?
         assert_eq!(kb.poll().unwrap(), Some(KeyAction::Palette)); // lone ;
         assert_eq!(kb.poll().unwrap(), Some(KeyAction::Palette)); // ;/ chord
         assert_eq!(kb.poll().unwrap(), Some(KeyAction::Char('t')));

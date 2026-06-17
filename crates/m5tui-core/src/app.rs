@@ -18,6 +18,22 @@ pub enum Mode {
     Help,
     /// On-device theme editor overlay (9 screens).
     ThemeEditor,
+    /// Profile picker modal — list profiles, pick one to connect.
+    ProfilePicker,
+    /// Book of commands modal — list spells, pick one to run.
+    Book,
+    /// Voice menu — list recordings, start a new PTT capture, etc.
+    Voice,
+    /// First-boot wizard — Wi-Fi/Tailscale/SSH key/server/theme/mic.
+    FirstBoot,
+    /// Device settings screen — brightness, Wi-Fi, Tailscale, sound, IMU.
+    Settings,
+    /// Doctor scoreboard modal — battery/Wi-Fi/server health summary.
+    Doctor,
+    /// Handoff picker modal — list project handoffs, pick one to continue.
+    Handoff,
+    /// Memory/vault search modal — query and JSONL hits.
+    Memory,
 }
 
 /// A mock agent shown in the cockpit's left pane. Real agents arrive in
@@ -195,38 +211,48 @@ pub fn step(state: AppState, event: Event) -> (AppState, Vec<Outgoing>) {
     };
     (next, out)
 }
+/// Open a modal overlay. Returns the input state unchanged when the
+/// current mode is not `Cockpit` (one overlay at a time).
+fn open_overlay(state: AppState, mode: Mode, event: Outgoing, out: &mut Vec<Outgoing>) -> AppState {
+    if state.mode != Mode::Cockpit {
+        return state;
+    }
+    out.push(event);
+    AppState { mode, ..state }
+}
+
+/// Save the prompt contents as a memo note. Empty prompts are ignored.
+fn save_memo(state: AppState, out: &mut Vec<Outgoing>) -> AppState {
+    if state.mode != Mode::Cockpit || state.prompt.is_empty() {
+        return state;
+    }
+    out.push(Outgoing::SaveMemo(state.prompt.clone()));
+    AppState {
+        prompt: String::new(),
+        ..state
+    }
+}
 
 fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> AppState {
     match action {
-        KeyAction::Palette => match state.mode {
-            Mode::Cockpit => {
-                out.push(Outgoing::OpenPalette);
-                AppState {
-                    mode: Mode::Palette,
-                    palette_query: String::new(),
-                    palette_selected: 0,
-                    ..state
-                }
-            }
-            _ => state,
-        },
-        KeyAction::Help => match state.mode {
-            Mode::Cockpit => {
-                out.push(Outgoing::OpenHelp);
-                AppState {
-                    mode: Mode::Help,
-                    ..state
-                }
-            }
-            _ => state,
-        },
-        KeyAction::OpenThemeEditor => match state.mode {
-            Mode::Cockpit => AppState {
-                mode: Mode::ThemeEditor,
-                ..state
-            },
-            _ => state,
-        },
+        KeyAction::Palette => open_overlay(state, Mode::Palette, Outgoing::OpenPalette, out),
+        KeyAction::Help => open_overlay(state, Mode::Help, Outgoing::OpenHelp, out),
+        KeyAction::OpenThemeEditor => {
+            open_overlay(state, Mode::ThemeEditor, Outgoing::OpenHelp, out)
+        }
+        KeyAction::OpenProfilePicker => {
+            open_overlay(state, Mode::ProfilePicker, Outgoing::OpenProfilePicker, out)
+        }
+        KeyAction::OpenBook => open_overlay(state, Mode::Book, Outgoing::OpenBook, out),
+        KeyAction::OpenVoice => open_overlay(state, Mode::Voice, Outgoing::OpenVoice, out),
+        KeyAction::OpenFirstBoot => {
+            open_overlay(state, Mode::FirstBoot, Outgoing::OpenFirstBoot, out)
+        }
+        KeyAction::OpenSettings => open_overlay(state, Mode::Settings, Outgoing::OpenSettings, out),
+        KeyAction::RunDoctor => open_overlay(state, Mode::Doctor, Outgoing::RunDoctor, out),
+        KeyAction::OpenHandoff => open_overlay(state, Mode::Handoff, Outgoing::OpenHandoff, out),
+        KeyAction::OpenMemory => open_overlay(state, Mode::Memory, Outgoing::OpenMemory, out),
+        KeyAction::SaveMemo => save_memo(state, out),
         KeyAction::Esc => match state.mode {
             Mode::Cockpit => AppState {
                 focus: Focus::Prompt,
@@ -331,11 +357,48 @@ fn apply_outgoing(state: AppState, o: Outgoing, out: &mut Vec<Outgoing>) -> AppS
             mode: Mode::Help,
             ..state
         },
+        Outgoing::OpenProfilePicker => AppState {
+            mode: Mode::ProfilePicker,
+            ..state
+        },
+        Outgoing::OpenBook => AppState {
+            mode: Mode::Book,
+            ..state
+        },
+        Outgoing::OpenVoice => AppState {
+            mode: Mode::Voice,
+            ..state
+        },
+        Outgoing::OpenFirstBoot => AppState {
+            mode: Mode::FirstBoot,
+            ..state
+        },
+        Outgoing::OpenSettings => AppState {
+            mode: Mode::Settings,
+            ..state
+        },
+        Outgoing::RunDoctor => AppState {
+            mode: Mode::Doctor,
+            ..state
+        },
+        Outgoing::OpenHandoff => AppState {
+            mode: Mode::Handoff,
+            ..state
+        },
+        Outgoing::OpenMemory => AppState {
+            mode: Mode::Memory,
+            ..state
+        },
         Outgoing::Quit => AppState {
             should_quit: true,
             ..state
         },
-        Outgoing::SubmitPrompt(_) | Outgoing::SelectAgent(_) | Outgoing::CycleFocus(_) => {
+        Outgoing::SubmitPrompt(_)
+        | Outgoing::SelectAgent(_)
+        | Outgoing::CycleFocus(_)
+        | Outgoing::SaveMemo(_)
+        | Outgoing::PickProfile(_)
+        | Outgoing::RunSpell(_) => {
             // The framework can replay these back into the reducer; for
             // now we just record the round-trip and leave state alone.
             out.push(o);
