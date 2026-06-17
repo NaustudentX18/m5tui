@@ -281,12 +281,42 @@ impl std::fmt::Display for SessionError {
 
 impl std::error::Error for SessionError {}
 
+/// What the OMP session is running on. PTY gives the framework a
+/// line-buffered pipe (used for the cockpit echo). Exec runs a
+/// single command and reads one batch of output, suitable for
+/// `omp --mode rpc` on a remote host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OmpTransport {
+    /// A pseudo-terminal over an SSH channel — the classic cockpit
+    /// wire.
+    Pty,
+    /// A single-shot exec channel running `omp --mode rpc`. The
+    /// framework sends frames on stdin and reads frames on stdout
+    /// until the channel closes.
+    Exec,
+    /// A websocket — used in browser/mobile clients. Stubbed for
+    /// now; the codec surface is identical.
+    WebSocket,
+}
+
 /// OMP session abstraction.
 pub trait OmpSession: Send + Sync {
     fn start(&mut self) -> Result<(), SessionError>;
     fn stop(&mut self) -> Result<(), SessionError>;
     fn send(&mut self, frame: &OmpFrame) -> Result<(), SessionError>;
     fn recv(&mut self) -> Result<Option<OmpFrame>, SessionError>;
+    /// The transport the session is currently attached to. Returns
+    /// `None` when the session has not been started.
+    fn transport(&self) -> Option<OmpTransport> {
+        None
+    }
+    /// Send a `session.create` request for the given model and switch
+    /// the underlying transport to `Exec` if the session is still
+    /// on a PTY. The default implementation is a no-op used by
+    /// sessions that don't care which transport they're on.
+    fn attach_exec(&mut self, _model: &str) -> Result<(), SessionError> {
+        Ok(())
+    }
 }
 
 /// Stub session that replays a canned sequence of frames.
@@ -296,6 +326,7 @@ pub struct StubOmpSession {
     canned: Vec<OmpFrame>,
     position: usize,
     sent: Vec<OmpFrame>,
+    transport: Option<OmpTransport>,
 }
 
 impl StubOmpSession {
@@ -306,6 +337,7 @@ impl StubOmpSession {
             canned,
             position: 0,
             sent: Vec::new(),
+            transport: None,
         }
     }
 
@@ -325,6 +357,55 @@ impl StubOmpSession {
     pub fn sent(&self) -> &[OmpFrame] {
         &self.sent
     }
+
+    pub fn attach_pty(&mut self) {
+        self.transport = Some(OmpTransport::Pty);
+    }
+}
+
+/// A minimal in-process `omp --mode rpc` server for tests. The
+/// server consumes frames from `stdin` and writes canned replies
+/// to `stdout`; the framework can stand this up when the real
+/// orchestrator is unavailable.
+#[derive(Debug, Default, Clone)]
+pub struct MockOmpServer {
+    /// Replies to write back for each consumed request.
+    pub replies: Vec<OmpFrame>,
+    /// Log of frames the server received.
+    pub received: Vec<OmpFrame>,
+    position: usize,
+}
+
+impl MockOmpServer {
+    pub fn new(replies: Vec<OmpFrame>) -> Self {
+        Self {
+            replies,
+            received: Vec::new(),
+            position: 0,
+        }
+    }
+
+    /// Process one incoming frame: record it and queue the next
+    /// canned reply. Returns the reply to write to stdout, or None
+    /// when the server has exhausted its canned list.
+    pub fn handle(&mut self, frame: OmpFrame) -> Option<OmpFrame> {
+        self.received.push(frame);
+        if self.position >= self.replies.len() {
+            return None;
+        }
+        let r = self.replies[self.position].clone();
+        self.position += 1;
+        Some(r)
+    }
+
+    /// Round-trip `frame` through the server using `LineCodec`. The
+    /// returned tuple is `(received, reply)`; `reply` is `None` when
+    /// the server has no more canned responses.
+    pub fn round_trip_line(&mut self, frame: OmpFrame) -> (OmpFrame, Option<OmpFrame>) {
+        let received = frame.clone();
+        let reply = self.handle(frame);
+        (received, reply)
+    }
 }
 
 impl OmpSession for StubOmpSession {
@@ -333,6 +414,9 @@ impl OmpSession for StubOmpSession {
             return Err(SessionError::AlreadyStarted);
         }
         self.started = true;
+        if self.transport.is_none() {
+            self.transport = Some(OmpTransport::Pty);
+        }
         Ok(())
     }
 
@@ -363,6 +447,18 @@ impl OmpSession for StubOmpSession {
         let frame = self.canned[self.position].clone();
         self.position += 1;
         Ok(Some(frame))
+    }
+
+    fn transport(&self) -> Option<OmpTransport> {
+        self.transport
+    }
+
+    fn attach_exec(&mut self, _model: &str) -> Result<(), SessionError> {
+        if !self.started {
+            return Err(SessionError::NotStarted);
+        }
+        self.transport = Some(OmpTransport::Exec);
+        Ok(())
     }
 }
 
@@ -570,6 +666,7 @@ pub fn session_switch(id: impl Into<String>, target: impl Into<String>) -> OmpFr
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -715,5 +812,90 @@ mod tests {
             }
             other => panic!("unexpected frame: {other:?}"),
         }
+    }
+
+    #[test]
+    fn default_transport_is_none() {
+        let s = StubOmpSession::simple();
+        assert_eq!(s.transport(), None);
+    }
+
+    #[test]
+    fn start_defaults_to_pty() {
+        let mut s = StubOmpSession::simple();
+        s.start().unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.transport(), Some(OmpTransport::Pty));
+    }
+
+    #[test]
+    fn attach_exec_switches_transport() {
+        let mut s = StubOmpSession::simple();
+        s.start().unwrap_or_else(|e| panic!("{e}"));
+        s.attach_exec("qwen3-14b").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.transport(), Some(OmpTransport::Exec));
+    }
+
+    #[test]
+    fn attach_exec_requires_started() {
+        let mut s = StubOmpSession::simple();
+        assert!(s.attach_exec("x").is_err());
+    }
+
+    #[test]
+    fn attach_pty_overrides_default() {
+        let mut s = StubOmpSession::simple();
+        s.attach_pty();
+        s.start().unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.transport(), Some(OmpTransport::Pty));
+    }
+
+    #[test]
+    fn mock_server_handles_frame_and_returns_reply() {
+        let mut srv = MockOmpServer::new(vec![OmpFrame::Answer {
+            id: "1".to_string(),
+            text: "ok".to_string(),
+        }]);
+        let (received, reply) = srv.round_trip_line(OmpFrame::Ask {
+            id: "1".to_string(),
+            text: "hi".to_string(),
+        });
+        assert_eq!(received.id(), "1");
+        let r = reply.unwrap_or_else(|| panic!("no reply"));
+        assert!(matches!(r, OmpFrame::Answer { .. }));
+    }
+
+    #[test]
+    fn mock_server_exhausted_returns_none() {
+        let mut srv = MockOmpServer::new(vec![]);
+        let (_, reply) = srv.round_trip_line(OmpFrame::Ask {
+            id: "1".to_string(),
+            text: "x".to_string(),
+        });
+        assert!(reply.is_none());
+    }
+
+    #[test]
+    fn mock_server_logs_received_in_order() {
+        let mut srv = MockOmpServer::new(vec![
+            OmpFrame::Answer {
+                id: "1".to_string(),
+                text: "a".to_string(),
+            },
+            OmpFrame::Answer {
+                id: "2".to_string(),
+                text: "b".to_string(),
+            },
+        ]);
+        srv.round_trip_line(OmpFrame::Ask {
+            id: "1".to_string(),
+            text: "x".to_string(),
+        });
+        srv.round_trip_line(OmpFrame::Ask {
+            id: "2".to_string(),
+            text: "y".to_string(),
+        });
+        assert_eq!(srv.received.len(), 2);
+        assert_eq!(srv.received[0].id(), "1");
+        assert_eq!(srv.received[1].id(), "2");
     }
 }
