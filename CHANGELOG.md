@@ -5,6 +5,47 @@ All notable changes to m5Tui will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-06-17 — Stub-to-real wave 12: book registry, Markdown renderer, OMP widgets
+
+### Added
+- `m5tui-book::load_book_dir(dir) -> Result<InMemoryRegistry, BookError>` — real `std::fs::read_dir` walker that reads every `*.yaml` in the directory and parses it through a new hand-rolled `parse_spell_yaml`. Supports the 6 sample shapes (`plan`, `ask`, `git-status`, `ssh-status`, `summarize`, `weather-stub`): top-level scalars, `params:` list of multi-line bullet records, and `template:` / `undo_template:` as either a quoted scalar or a `|` block scalar with indent stripping.
+- `m5tui-book::FileRegistry { dir, inner, mtimes }` — directory-watching spell registry. `new(dir)` records mtimes; `refresh_if_stale()` re-reads any YAML whose mtime changed (or appeared new) or was deleted; `spell_count()` for quick checks; `impl BookRegistry` delegating to the inner `InMemoryRegistry`.
+- `m5tui-book::BookError::DuplicateName(String)` + `BookError::Io(String)` + `BookError::Parse { path, line, message }` + `BookError::io(action, path, e)` helper for ergonomic IO-error wrapping (mirrors `m5tui-persist::PersistError::io`).
+- `m5tui-book::InMemoryRegistry::insert(Spell)` — returns `BookError::DuplicateName` on collision.
+- `crates/m5tui-book/tests/registry_fs.rs` (NEW, 6 integration tests): two-file load, empty dir, invalid YAML, `FileRegistry::new` count, `FileRegistry::refresh_if_stale` after rewrite, `&dyn BookRegistry` dispatch through `FileRegistry`.
+- `m5tui-handoff::LineStyle` — expanded with 6 new variants (`Heading`, `Bullet`, `Numbered`, `Quote`, `Code`, `Rule`, `Blank`, `Body`, `InlineCode`) while keeping the original variants for backwards compatibility (15 existing lib tests still pass unchanged).
+- `m5tui-handoff::render_markdown(src)` — two-pass CommonMark-subset renderer (~390 lines). Classifies each line (blank/fence/HR/heading/quote/ordered/unordered/prose), then runs `apply_inline` to transform `**bold**` to `*foo*`, `*italic*` to `_foo_`, `` `inline code` `` to `foo`, `[text](url)` to `text (url)`. Every emitted line is wrapped to the 40-col framebuffer via `wrap_text` (word-wrap on spaces, hard-break at col 38 with `-` suffix for long words); list/quote continuations are indented to match marker width.
+- `m5tui-handoff::FRAME_COLS: usize = 40` — public constant for callers that need to mirror the wrap budget.
+- `m5tui-handoff::InMemoryVaultClient` — `Debug + Default + Clone` with `new(hits)`, `from_jsonl(stream)`, `len()`, `is_empty()`, and `impl VaultSearch` whose `query(q)` returns `Ok(corpus.clone())` regardless of `q`. Constructors reuse `parse_hits_jsonl` so `HandoffError::Parse` bubbles up on malformed input.
+- `crates/m5tui-handoff/tests/markdown.rs` (NEW, 10 tests) + `crates/m5tui-handoff/tests/vault_inmemory.rs` (NEW, 4 tests).
+- `m5tui-core::app::{OmpCard, OmpTodo, OmpSubagent, ProfileSummary, SpellSummary}` — state types for the OMP event widgets and the picker UIs.
+- `m5tui-core::app::AppState` — 8 new fields: `omp_cards: Vec<OmpCard>`, `omp_todos: Vec<OmpTodo>`, `omp_subagents: Vec<OmpSubagent>`, `omp_thinking: Option<String>`, `omp_answers: VecDeque<String>` (cap 20), `profiles: Vec<ProfileSummary>`, `book_spells: Vec<SpellSummary>`, `picker_index: usize`. All default to empty in `Default::default()` (cockpit mode preserved per the v1.12 gotcha).
+- `m5tui-core::event::Event::OmpFrameReceived(m5tui_omp::OmpFrame)` — the framework injects this from the OMP transport loop; the reducer pushes to the right `AppState` field by `OmpFrame` kind.
+- `m5tui-core::event::KeyAction::{ProfileUp, ProfileDown, BookUp, BookDown}` — picker navigation keys (bound to `j/k` in `Mode::ProfilePicker` / `Mode::Book`).
+- `m5tui-core::step` — new arms for `Event::OmpFrameReceived` (ingest: `ToolCall` → push card, `ToolResult` → close matching card, `TodoUpdate` → upsert, `Subagent` → push, `Thinking` → set, `Answer` → clear thinking + append to ring buffer), plus `ProfileUp/Down`, `BookUp/Down` (wraps the `picker_index`), and Enter in `Mode::{ProfilePicker, Book}` (emits `Outgoing::PickProfile(id)` / `Outgoing::RunSpell(id)` via the new generic `enter_picker<T, F>` helper).
+- `m5tui-core::widgets::omp_cards` (NEW) — renders the right pane of the cockpit from OMP events: 1 line `think: …`, 4 todo rows (`[ ] foo` / `[x] foo`), 2 subagent rows (`> task`), 6 card rows (`▶ id tool(args)` for running, `✓ id tool` for ended), 1 most-recent-answer row. Truncated to 40 cols.
+- `m5tui-core::widgets::profile_picker` (NEW) — list-driven profile picker. Title `Profiles` in accent, body listing `state.profiles` with `state.picker_index` highlighted in `theme.palette.ok`, empty state `No profiles — run ;n`, hint `j/k move  ⏎ select  esc back`.
+- `m5tui-core::widgets::book_picker` (NEW) — same shape as `profile_picker` but lists `state.book_spells`. Hint: `j/k move  ⏎ cast  esc back`.
+- `m5tui-core::widgets::cockpit` — right pane now dispatches to `omp_cards::render` when `state.omp_cards` / `state.omp_thinking` / `state.omp_todos` is non-empty; falls back to the existing `MockSession` render otherwise (so the 6 existing cockpit sim tests still pass unchanged).
+- `m5tui-core::widgets::overlay` — `render_profile_picker` and `render_book` now delegate to the new picker widgets (the static placeholder bodies are gone).
+- `m5tui-core/Cargo.toml` — adds `m5tui-omp = { path = "../m5tui-omp" }` so the new `OmpFrameReceived` event can carry the OMP frame type directly.
+- `m5tui-omp/Cargo.toml` — **drops** the dead `m5tui-core = { path = "../m5tui-core" }` dep. The dep was unused in the omp src (no `use m5tui_core::*` anywhere) and was blocking `m5tui-core` from depending on `m5tui-omp`. Now `m5tui-core` can use `m5tui_omp::OmpFrame` directly. The dead-dep removal was the only cycle fix; no other workspace change was needed.
+- `crates/m5tui-core/tests/{omp_cards,profile_picker,book_picker}.rs` (NEW, 3 integration tests × ~3 cases each = 8 sim tests).
+- `m5tui-core::app_tests.rs` — new reducer tests for OMP frame ingestion (5 cases: ToolCall push, ToolResult close, TodoUpdate upsert, Thinking+Answer clear, picker index wrap) and the `omp_answers` 20-cap.
+
+### Changed
+- Workspace: 444 → 485 tests (+41). All gates green: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (485 passed, 41 suites).
+- PLAN.md todo delta: 64/68 → **67/68** done. The 3 newly completed items:
+  - M5a Book of Commands: `Registry` walks `book/*.yaml`, validates, hot-reloads (was: in-memory only).
+  - M6 Handoff viewer: full Markdown renderer replaces the "tiny subset" stub.
+  - M4 OMP integration: right pane now renders `tool_call` / `todo_update` / `subagent` / `thinking` cards instead of just `MockSession`.
+
+### Known limitations
+- `m5tui-book::parse_spell_yaml` is intentionally minimal — handles only the 6 sample spell shapes (no flow-style mappings, no anchors, no `!include`). If a future spell file needs any of those, the parser will need to grow or we should switch to `serde_yaml`.
+- `BookError::Parse.line` is always `0` — the hand-rolled parser doesn't thread line numbers from inner errors. The file path is preserved on every parse failure, which is the more useful signal.
+- `FileRegistry::refresh_if_stale` uses fs `mtime` only; on filesystems with second-granular timestamps an edit within the same second as `new()` will be missed until the next refresh.
+- The OMP `OmpFrameReceived` event currently lives on `m5tui-core`'s `AppState` directly; a future refactor might wrap it in a `Subscription`/`Reducer` pattern, but this is the simplest path for v1.
+
 ## [1.12.0] - 2026-06-17 — Boot screen + About + Log viewer
 
 ### Added
@@ -253,3 +294,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.1.0
 [0.2.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v0.2.0
 [1.0.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.0.0
+[1.1.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.1.0
+[1.2.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.2.0
+[1.3.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.3.0
+[1.4.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.4.0
+[1.5.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.5.0
+[1.6.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.6.0
+[1.7.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.7.0
+[1.8.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.8.0
+[1.9.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.9.0
+[1.10.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.10.0
+[1.11.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.11.0
+[1.12.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.12.0
+[1.13.0]: https://github.com/NaustudentX18/m5tui/releases/tag/v1.13.0

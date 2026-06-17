@@ -3,8 +3,8 @@
 > The detailed milestone breakdown. Companion to `PLANNING.md §10`.
 > Each milestone has: scope, deliverable, verification, and a "done" gate.
 
-**Current status:** 🟢 v1.11.0 stub-to-real wave 11 — 2026-06-17
-**Last update:** 2026-06-17 (real device drivers + market GitHub Pages backend + publish script)
+**Current status:** 🟢 v1.13.0 stub-to-real wave 12 — 2026-06-17
+**Last update:** 2026-06-17 (book FileRegistry + hot-reload, full Markdown renderer + InMemoryVaultClient, OMP event widgets, profile/book picker UIs)
 ---
 
 ## Progress
@@ -19,10 +19,10 @@ M5  ████████████  Voice / PTT      HOST 🟢 (cpal + WAV
 M5a ████████████  Book of Commands ✅ Author mode + prompt rendering + template expansion done
 M5b ████████████  Community Market BACKEND 🟢 (ureq + offline cache + GitHub Pages HTML + publish script done); Pages site + B2/R2 operator work
 M6  ████████████  Handoff + vault  HOST 🟢 (vault JSONL + ;continue done); SFTP fetch + live obsidian-memory operator work
-v1  ████████████  v1.0 → v1.11.0   v1.11.0 shipped — 395 tests, 10 crates; only real hardware/network + Pages site remain
+v1  ████████████  v1.0 → v1.13.0   v1.13.0 shipped — 485 tests, 13 crates; only real hardware/network + Pages site remain
 ```
 
-(11 of 11 milestones structurally done. 8 of 11 are now functionally done on the host side; the remaining work is device wiring (ESP toolchain), Pages site + B2/R2, and live network targets.)
+(11 of 11 milestones structurally done. 10 of 11 are now functionally done on the host side; the remaining work is device wiring (ESP toolchain), Pages site + B2/R2, and live network targets.)
 
 > **Note:** "Structural ✅" means the crate, trait, unit tests, and CI wiring exist. "Functional 🟢" means the host side is implemented and unit-tested against a mock. "Operator work" means the only remaining step is real hardware/network provisioning, which is outside the Pi toolchain.
 
@@ -311,5 +311,46 @@ stub-to-real work from 60/68 to 64/68 of the original PLAN.md todos:
 - `scripts/market-publish.sh` — operator-facing publish pipeline.
 
 Workspace test count: 364 (v1.10) → 395 (v1.11) = +31 tests.
+
+## What landed in v1.12.0 (2026-06-17)
+
+Boot screen + About + Log viewer (see CHANGELOG for the full list).
+395 → 444 tests (+49). 11 → 13 crates (m5tui-handoff gained
+markdown rendering + JSONL search history).
+
+## What landed in v1.13.0 (2026-06-17)
+
+Stub-to-real wave 12 — bringing PLAN.md todos from 64/68 to 67/68:
+
+- `m5tui-book::load_book_dir` + `FileRegistry` (12 lib tests + 6
+  integration tests): the Book of Commands now actually reads
+  `book/*.yaml` from disk, parses the 6 sample shapes, and
+  hot-reloads on mtime change. The 6 sample spells in `book/` are
+  now reachable from the registry instead of being inert fixtures.
+- `m5tui-handoff::render_markdown` (15 existing + 14 new tests =
+  29 total in the handoff crate): a full CommonMark-subset
+  renderer (headings, lists, fenced code, block quotes, links,
+  bold/italic, horizontal rules, 40-col wrap) replaces the 30-line
+  "tiny subset" stub. `InMemoryVaultClient` lets the `;m` memory
+  search run without SSH.
+- `m5tui-core::widgets::omp_cards` + `widgets::profile_picker` +
+  `widgets::book_picker` (3 new widget files + 3 integration
+  test files + 5 new reducer tests): the cockpit right pane now
+  renders OMP events (tool calls, todos, subagents, thinking,
+  answers) instead of just `MockSession`; the `;p` and `;b`
+  pickers are real list-driven widgets with `j/k` navigation
+  and `enter` selection. New `Event::OmpFrameReceived(OmpFrame)`
+  event + 4 new `KeyAction::{ProfileUp/Down, BookUp/Down}`.
+- `m5tui-omp/Cargo.toml`: dropped the dead `m5tui-core` dep that
+  was blocking `m5tui-core` from depending on `m5tui-omp`. No
+  omp-side source change — the dep was unused (`grep m5tui_core
+  crates/m5tui-omp/src/` returns nothing).
+
+Workspace test count: 444 (v1.12) → 485 (v1.13) = +41 tests, 41 suites.
+3 disjoint crates modified: `m5tui-book`, `m5tui-handoff`,
+`m5tui-core`. Fan-out: 3 parallel agents (PC Ollama was down,
+so we stayed at 3 per the v1.11 gotcha) + 1 follow-up widget-only
+agent for the core widget files after the first CoreAgent2
+attempt was cancelled mid-fix on a brace/borrow storm.
 
 **End of ROADMAP.md.**

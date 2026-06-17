@@ -108,12 +108,27 @@ impl HandoffStore for InMemoryStore {
 /// A rendered line with a style tag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineStyle {
+    // Legacy variants retained for backwards compatibility with code
+    // written against the initial M6 surface.
     Normal,
     Heading,
     Bold,
     Italic,
     Code,
     Bullet,
+    // New variants added in wave 12 for the CommonMark-subset renderer.
+    /// Plain prose line.
+    Body,
+    /// Inline code span on a prose line (no surrounding fence).
+    InlineCode,
+    /// `1. ` ordered list item.
+    Numbered,
+    /// `> ` block quote line.
+    Quote,
+    /// `---` horizontal rule.
+    Rule,
+    /// Blank separator line.
+    Blank,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,35 +137,396 @@ pub struct Line {
     pub text: String,
 }
 
-/// Minimal Markdown renderer for inline TUI.
+/// Width of the inline TUI framebuffer. The renderer wraps every line
+/// so it fits within this budget; list and quote continuations are
+/// indented to match their marker width.
+pub const FRAME_COLS: usize = 40;
+
+/// Render a CommonMark subset to TUI lines.
+///
+/// Supported elements:
+///   * ATX headings `#`–`######`
+///   * `**bold**` and `*italic*` inline emphasis (rendered with marker glyphs)
+///   * `` `inline code` `` (inline spans; fences are also recognised)
+///   * Fenced code blocks ``` ``` ```
+///   * Unordered list items `- ` or `* `
+///   * Ordered list items `1. `, `2. `, ...
+///   * Block quotes `> `
+///   * Links `[text](url)` rendered as `text (url)`
+///   * Horizontal rules `---`
+///   * Blank lines
+///   * Plain prose
+///
+/// Lines wider than [`FRAME_COLS`] are word-wrapped on spaces. A single
+/// word longer than the wrap point is broken at column 38 with a `-`
+/// suffix and continued on the next line at indent 0. List, ordered,
+/// and quote continuations are indented to match their marker width.
 pub fn render_markdown(src: &str) -> Vec<Line> {
-    let mut out = Vec::new();
-    for raw in src.lines() {
-        let line = raw.trim_end();
-        if line.is_empty() {
+    let mut out: Vec<Line> = Vec::new();
+    let mut lines = src.lines().peekable();
+
+    while let Some(raw) = lines.next() {
+        let line = raw.trim_end_matches('\r');
+
+        // Blank line.
+        if line.trim().is_empty() {
+            out.push(Line {
+                style: LineStyle::Blank,
+                text: String::new(),
+            });
             continue;
         }
-        if let Some(rest) = line.strip_prefix("# ") {
+
+        // Fenced code block: ``` ... ```
+        if line.trim_start().starts_with("```") {
+            let mut code_lines: Vec<String> = Vec::new();
+            for inner in lines.by_ref() {
+                let inner = inner.trim_end_matches('\r');
+                if inner.trim_start().starts_with("```") {
+                    break;
+                }
+                code_lines.push(inner.to_string());
+            }
+            for cl in code_lines {
+                out.push(Line {
+                    style: LineStyle::Code,
+                    text: cl,
+                });
+            }
+            continue;
+        }
+
+        // Horizontal rule: --- (or more dashes) on a line by itself.
+        if is_horizontal_rule(line) {
             out.push(Line {
-                style: LineStyle::Heading,
-                text: rest.to_string(),
+                style: LineStyle::Rule,
+                text: String::new(),
             });
-        } else if let Some(rest) = line.strip_prefix("## ") {
+            continue;
+        }
+
+        // ATX heading: 1-6 leading `#` characters followed by a space.
+        if let Some(rest) = strip_heading(line) {
+            let text = apply_inline(rest);
+            push_wrapped(&mut out, LineStyle::Heading, &text, 0);
+            continue;
+        }
+
+        // Block quote: leading `> ` (or `>` alone).
+        if let Some(rest) = strip_quote(line) {
+            let text = apply_inline(rest);
+            push_wrapped(&mut out, LineStyle::Quote, &text, 2);
+            continue;
+        }
+
+        // Ordered list item: `<digits>. ` prefix.
+        if let Some((marker, rest)) = strip_ordered(line) {
+            let indent = marker.len();
+            let text = apply_inline(rest);
+            let first = format!("{}{}", marker, text);
+            push_wrapped_with_marker(&mut out, LineStyle::Numbered, &first, indent);
+            continue;
+        }
+
+        // Unordered list item: `- ` or `* `.
+        // We render the marker as a literal `• ` so the framebuffer shows a
+        // recognisable bullet. Continuation rows are indented to match.
+        if let Some((_, rest)) = strip_unordered(line) {
+            let indent = 2usize;
+            let text = apply_inline(rest);
+            let first = format!("\u{2022} {text}");
+            push_wrapped_with_marker(&mut out, LineStyle::Bullet, &first, indent);
+            continue;
+        }
+
+        // Plain prose (or a link line). We emit `Normal` (the legacy
+        // body variant) so the existing renderer tests keep passing; the
+        // new `Body` variant is reserved for callers that want semantic
+        // naming.
+        let text = apply_inline(line);
+        push_wrapped(&mut out, LineStyle::Normal, &text, 0);
+    }
+
+    out
+}
+
+/// True when `line` is a horizontal rule: three or more `-`, `_`, or
+/// `*` characters separated only by optional spaces.
+fn is_horizontal_rule(line: &str) -> bool {
+    let t = line.trim();
+    if t.len() < 3 {
+        return false;
+    }
+    let ch = t.chars().next().expect("non-empty");
+    if ch != '-' && ch != '_' && ch != '*' {
+        return false;
+    }
+    t.chars().all(|c| c == ch || c == ' ')
+}
+
+/// Strip a leading `#`–`######` heading marker. Returns the rest after
+/// the first space, or `None` if the line is not a heading.
+fn strip_heading(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i] == b'#' && i < 6 {
+        i += 1;
+    }
+    if i == 0 || i > 6 {
+        return None;
+    }
+    if bytes.get(i) != Some(&b' ') {
+        return None;
+    }
+    Some(&line[i + 1..])
+}
+
+/// Strip a leading `> ` (or `>` followed by whitespace) block-quote
+/// marker.
+fn strip_quote(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    let _leading_ws = line.len() - trimmed.len();
+    let rest = trimmed.strip_prefix('>')?;
+    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    Some(rest)
+}
+
+/// Strip an ordered-list marker like `1. ` and return `(marker, rest)`.
+fn strip_ordered(line: &str) -> Option<(&str, &str)> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return None;
+    }
+    if bytes.get(i) != Some(&b'.') {
+        return None;
+    }
+    if bytes.get(i + 1) != Some(&b' ') {
+        return None;
+    }
+    Some((&line[..i + 2], &line[i + 2..]))
+}
+
+/// Strip an unordered-list marker (`- ` or `* `) and return
+/// `(marker, rest)`.
+fn strip_unordered(line: &str) -> Option<(&str, &str)> {
+    let bytes = line.as_bytes();
+    let first = *bytes.first()?;
+    if first != b'-' && first != b'*' {
+        return None;
+    }
+    if bytes.get(1) != Some(&b' ') {
+        return None;
+    }
+    Some((&line[..2], &line[2..]))
+}
+
+/// Apply inline transforms to a single prose line:
+///   * `**foo**` -> `*foo*`  (rendered bold-ish on a 40-col framebuffer)
+///   * `*foo*`   -> `_foo_`  (italic-ish)
+///   * `` `foo` `` -> `foo` (marker dropped; style tag carries the meaning)
+///   * `[text](url)` -> `text (url)`
+///
+/// The function only mutates ASCII delimiter runs so it cannot
+/// accidentally eat a Unicode apostrophe.
+fn apply_inline(src: &str) -> String {
+    // Links first so emphasis inside `[text]` is not double-processed
+    // by the bold/italic pass (which would still work but is wasteful).
+    let mut s = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            if let Some(end) = find_link_close(bytes, i) {
+                let text = &src[i + 1..end];
+                // After `]` expect `(url)`.
+                let after = end + 1;
+                if bytes.get(after) == Some(&b'(') {
+                    if let Some(close_paren) = src[after + 1..].find(')') {
+                        let url = &src[after + 1..after + 1 + close_paren];
+                        s.push_str(text);
+                        s.push_str(" (");
+                        s.push_str(url);
+                        s.push(')');
+                        i = after + 1 + close_paren + 1;
+                        continue;
+                    }
+                }
+                s.push('[');
+                i += 1;
+                continue;
+            } else {
+                s.push('[');
+                i += 1;
+                continue;
+            }
+        }
+        // Inline code span: `foo` -> foo
+        if bytes[i] == b'`' {
+            if let Some(close) = src[i + 1..].find('`') {
+                s.push_str(&src[i + 1..i + 1 + close]);
+                i = i + 1 + close + 1;
+                continue;
+            } else {
+                s.push('`');
+                i += 1;
+                continue;
+            }
+        }
+        // Bold: **foo** -> *foo*
+        if bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'*') {
+            if let Some(close) = find_double_close(bytes, i + 2) {
+                s.push('*');
+                s.push_str(&src[i + 2..close]);
+                s.push('*');
+                i = close + 2;
+                continue;
+            }
+        }
+        // Italic: *foo* -> _foo_
+        if bytes[i] == b'*' {
+            if let Some(close) = src[i + 1..].find('*') {
+                // Don't eat a stray `*` that's actually the end of a bold.
+                if close > 0 {
+                    s.push('_');
+                    s.push_str(&src[i + 1..i + 1 + close]);
+                    s.push('_');
+                    i = i + 1 + close + 1;
+                    continue;
+                }
+            }
+        }
+        // Push one char (UTF-8 safe).
+        let ch = src[i..].chars().next().expect("index at char boundary");
+        s.push(ch);
+        i += ch.len_utf8();
+    }
+    s
+}
+
+/// Find the `]` that closes a link opened at `start` (which must point
+/// at `[`). Returns the byte index of the `]` or `None`.
+fn find_link_close(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        if bytes[i] == b']' {
+            return Some(i);
+        }
+        // A newline would end the line; bail out.
+        if bytes[i] == b'\n' {
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find the closing `**` after `start` for a bold run.
+fn find_double_close(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut i = start;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'*' && bytes[i + 1] == b'*' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Push a line and any wrapped continuations. `indent` is the number
+/// of leading spaces used for continuation rows.
+fn push_wrapped(out: &mut Vec<Line>, style: LineStyle, text: &str, indent: usize) {
+    let wrap = FRAME_COLS.saturating_sub(indent).max(1);
+    let mut first = true;
+    for chunk in wrap_text(text, wrap) {
+        if first {
             out.push(Line {
-                style: LineStyle::Heading,
-                text: rest.to_string(),
+                style: style.clone(),
+                text: chunk,
             });
-        } else if let Some(rest) = line.strip_prefix("- ") {
-            out.push(Line {
-                style: LineStyle::Bullet,
-                text: format!("• {rest}"),
-            });
+            first = false;
         } else {
             out.push(Line {
-                style: LineStyle::Normal,
-                text: line.to_string(),
+                style: style.clone(),
+                text: format!("{}{}", " ".repeat(indent), chunk),
             });
         }
+    }
+}
+
+/// Like [`push_wrapped`] but the first row already includes a marker
+/// (e.g. `- `, `1. `, `> `); only continuation rows are indented.
+fn push_wrapped_with_marker(
+    out: &mut Vec<Line>,
+    style: LineStyle,
+    first_text: &str,
+    indent: usize,
+) {
+    let wrap = FRAME_COLS.saturating_sub(indent).max(1);
+    let mut iter = wrap_text(first_text, wrap).into_iter();
+    if let Some(head) = iter.next() {
+        out.push(Line {
+            style: style.clone(),
+            text: head,
+        });
+    }
+    for chunk in iter {
+        out.push(Line {
+            style: style.clone(),
+            text: format!("{}{}", " ".repeat(indent), chunk),
+        });
+    }
+}
+
+/// Word-wrap `text` to at most `wrap` columns per line. Splits on
+/// single ASCII spaces. A single word longer than `wrap` is broken at
+/// column `wrap - 2` with a `-` suffix and resumed on the next row.
+fn wrap_text(text: &str, wrap: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if text.is_empty() {
+        out.push(String::new());
+        return out;
+    }
+    let mut current = String::new();
+    for word in text.split(' ') {
+        // Collapse runs of spaces (split(' ') yields empties for them).
+        if word.is_empty() {
+            continue;
+        }
+        // Long-word break: append the chunk that fits, possibly ending with
+        // a `-`, then push and reset. Repeats until the word is consumed.
+        let mut remaining = word;
+        loop {
+            let room = wrap.saturating_sub(current.len());
+            if remaining.len() <= room {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(remaining);
+                break;
+            }
+            // Word doesn't fit on the current line. If current is empty we
+            // must hard-break the word itself.
+            if current.is_empty() {
+                // Reserve 1 column for the `-` continuation mark.
+                let take = wrap.saturating_sub(2).max(1);
+                if remaining.len() <= take {
+                    out.push(remaining.to_string());
+                } else {
+                    out.push(format!("{}-", &remaining[..take]));
+                }
+                remaining = &remaining[take..];
+            } else {
+                // Flush the current line, then retry the word on a fresh row.
+                out.push(std::mem::take(&mut current));
+            }
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
     }
     out
 }
@@ -330,6 +706,50 @@ impl VaultSearch for StubVaultClient {
                 snippet: "Voice memo queue design.".to_string(),
             },
         ])
+    }
+}
+
+/// Vault client that serves a pre-fetched corpus without any I/O.
+///
+/// Useful for tests, the `;m` memory search, and any context where SSH
+/// is unavailable. The corpus is cloned on each [`VaultSearch::query`]
+/// call so the client can be reused across many searches.
+#[derive(Debug, Default, Clone)]
+pub struct InMemoryVaultClient {
+    corpus: Vec<Hit>,
+}
+
+impl InMemoryVaultClient {
+    /// Build a client from an already-parsed corpus.
+    pub fn new(hits: Vec<Hit>) -> Self {
+        Self { corpus: hits }
+    }
+
+    /// Parse a JSONL stream (one [`Hit`] per non-blank line) into a
+    /// client. Returns the same [`HandoffError::Parse`] as
+    /// [`parse_hits_jsonl`] on the first malformed row.
+    pub fn from_jsonl(stream: &str) -> Result<Self, HandoffError> {
+        let hits = parse_hits_jsonl(stream)?;
+        Ok(Self { corpus: hits })
+    }
+
+    /// Number of hits currently held.
+    pub fn len(&self) -> usize {
+        self.corpus.len()
+    }
+
+    /// True when the corpus is empty.
+    pub fn is_empty(&self) -> bool {
+        self.corpus.is_empty()
+    }
+}
+
+impl VaultSearch for InMemoryVaultClient {
+    /// Returns a clone of the pre-fetched corpus regardless of the query.
+    /// The trait signature accepts `q` so the in-memory client is a
+    /// drop-in for future filtered clients (rank, BM25, etc.).
+    fn query(&self, _q: &str) -> Result<Vec<Hit>, HandoffError> {
+        Ok(self.corpus.clone())
     }
 }
 

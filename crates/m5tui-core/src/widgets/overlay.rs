@@ -76,33 +76,16 @@ fn draw_body_line(frame: &mut Frame, row: usize, body: &str, theme: &Theme) {
     write_str_colored(frame, row, 0, body, theme.palette.fg.0, theme.palette.bg.0);
 }
 
-/// Profile picker — list profiles with the default one highlighted. The
-/// actual data source is a `ProfileRegistry` injected by the framework;
-/// until then we just show a static "no profiles loaded" body.
-pub fn render_profile_picker(frame: &mut Frame, _state: &AppState, theme: &Theme) {
-    clear(frame, theme.palette.bg.0);
-    draw_title(frame, "m5Tui -- PROFILES", theme);
-    draw_body_line(frame, 2, "default * aiserver-1", theme);
-    draw_body_line(frame, 3, "        aiserver-2", theme);
-    draw_body_line(frame, 4, "        pc-ollama", theme);
-    draw_body_line(frame, 5, "        jbpi-bridge", theme);
-    draw_body_line(frame, 7, "up/dn move   enter connect", theme);
-    draw_hint(frame, "esc close", theme);
+/// Profile picker — list profiles from `state.profiles` with the
+/// cursor row highlighted. Delegates to `super::profile_picker`.
+pub fn render_profile_picker(frame: &mut Frame, state: &AppState, theme: &Theme) {
+    super::profile_picker::render(frame, state, theme);
 }
 
-/// Book of commands — list spell names. Spells are loaded from
-/// `book/*.yaml` by the framework; the widget just renders them.
-pub fn render_book(frame: &mut Frame, _state: &AppState, theme: &Theme) {
-    clear(frame, theme.palette.bg.0);
-    draw_title(frame, "m5Tui -- BOOK", theme);
-    draw_body_line(frame, 2, "ask      Ask the agent a question", theme);
-    draw_body_line(frame, 3, "plan     Draft a plan for the task", theme);
-    draw_body_line(frame, 4, "summarize Summarize the current view", theme);
-    draw_body_line(frame, 5, "git-status  Run git status via OMP", theme);
-    draw_body_line(frame, 6, "ssh-status  Run ssh health check", theme);
-    draw_body_line(frame, 7, "weather  Get the local weather", theme);
-    draw_body_line(frame, 8, "         (book/weather-stub.yaml)", theme);
-    draw_hint(frame, "esc close   L author", theme);
+/// Book of commands — list spells from `state.book_spells` with the
+/// cursor row highlighted. Delegates to `super::book_picker`.
+pub fn render_book(frame: &mut Frame, state: &AppState, theme: &Theme) {
+    super::book_picker::render(frame, state, theme);
 }
 
 /// Voice menu — start PTT, list inbox, playback.
@@ -234,14 +217,14 @@ mod tests {
         let mut f = frame();
         render_profile_picker(&mut f, &state(), &theme());
         let t = title_of(&f);
-        assert!(t.contains("PROFILES"), "title: {t}");
+        assert!(t.contains("Profiles"), "title: {t}");
     }
 
     #[test]
     fn book_title_present() {
         let mut f = frame();
         render_book(&mut f, &state(), &theme());
-        assert!(title_of(&f).contains("BOOK"));
+        assert!(title_of(&f).contains("Book"));
     }
 
     #[test]
@@ -301,14 +284,17 @@ mod tests {
         // helper includes the title row (row 0) and the hint row (last),
         // but rows in between should be background-only except for the
         // body lines each overlay draws.
+        //
+        // The profile picker delegates to the real `profile_picker`
+        // widget: with an empty `state.profiles` it writes the
+        // "No profiles" line on row 1 and the hint footer on the last
+        // row. Every other body row is background.
         let mut f = frame();
         render_profile_picker(&mut f, &state(), &theme());
-        // Body rows 1..ROWS-1 must not have glyphs outside body lines
-        // (rows 2..=5 and 7 in the profile picker).
         for row in 1..ROWS - 1 {
             for col in 0..COLS {
                 if f.cells[row][col].glyph != b' ' {
-                    let allowed = (2..=5).contains(&row) || row == 7;
+                    let allowed = row == 1;
                     if !allowed {
                         panic!(
                             "non-space glyph at row {row} col {col}: {}",

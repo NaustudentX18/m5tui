@@ -33,7 +33,14 @@ pub fn render(frame: &mut Frame, state: &AppState, theme: &Theme) {
     draw_top_bar(frame, theme);
     draw_headers(frame, theme);
     draw_agents(frame, &state.agents, state.selected_agent, theme);
-    draw_session(frame, &state.session, theme);
+    // The right pane is owned by the OMP cards widget when the
+    // session is producing tool calls / thinking / todos; otherwise
+    // it falls back to the static `MockSession` view.
+    if state.omp_cards.is_empty() && state.omp_thinking.is_none() && state.omp_todos.is_empty() {
+        draw_session(frame, &state.session, theme);
+    } else {
+        crate::widgets::omp_cards::render(frame, state, theme);
+    }
     draw_hint_bar(frame, theme);
     draw_separator(frame, theme);
     draw_prompt(frame, &state.prompt, theme);

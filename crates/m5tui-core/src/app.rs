@@ -4,10 +4,9 @@
 //! session, prompt, palette state, clock, toast) and adds `step`, the
 //! side-channel reducer that also returns the `Outgoing` actions the
 //! framework must perform.
-
 use crate::event::{Event, Focus, KeyAction, Outgoing};
+use m5tui_omp::OmpFrame;
 use std::collections::VecDeque;
-
 /// Which top-level screen the user is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -69,6 +68,60 @@ pub struct MockSession {
     pub rate_tps: f32,
     pub ctx_used: u32,
     pub ctx_max: u32,
+}
+
+/// A single tool-call entry as ingested from `OmpFrame::ToolCall` and
+/// completed by a matching `OmpFrame::ToolResult`. The reducer pushes a
+/// fresh card on `ToolCall` and updates `ended` / `output` when the
+/// result arrives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmpCard {
+    /// Frame id assigned by the OMP server.
+    pub id: String,
+    /// Tool name (e.g. `read_file`, `shell`).
+    pub tool: String,
+    /// Ordered (key, value) argument pairs.
+    pub args: Vec<(String, String)>,
+    /// Tick at which the `ToolCall` arrived.
+    pub started: Option<u64>,
+    /// Tick at which the matching `ToolResult` arrived.
+    pub ended: Option<u64>,
+    /// Output from the matching `ToolResult`, if any.
+    pub output: Option<String>,
+}
+
+/// A todo item extracted from `OmpFrame::TodoUpdate`. Keyed by id;
+/// repeated updates with the same id replace the entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmpTodo {
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+}
+
+/// A subagent entry extracted from `OmpFrame::Subagent`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmpSubagent {
+    pub id: String,
+    pub task: String,
+}
+
+/// A profile entry shown in the profile picker. The framework supplies
+/// these from the persist layer; the reducer just stores them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileSummary {
+    pub id: String,
+    pub label: String,
+    pub host: String,
+}
+
+/// A spell entry shown in the book picker. The framework supplies
+/// these from `book/*.yaml`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpellSummary {
+    pub id: String,
+    pub key: String,
+    pub help: String,
 }
 
 /// A short-lived message shown in the top-right of the cockpit. Toasts
@@ -220,6 +273,30 @@ pub struct AppState {
     pub theme_draft_palette: Option<m5tui_themes::ThemePalette>,
     /// In-memory log buffer shown by the `Mode::LogViewer` overlay.
     pub log_buffer: LogBuffer,
+    /// In-flight tool calls, oldest-first. Populated from
+    /// `OmpFrame::ToolCall` and updated when `ToolResult` arrives.
+    pub omp_cards: Vec<OmpCard>,
+    /// Todo list keyed by id. Populated from `OmpFrame::TodoUpdate`;
+    /// repeated updates with the same id replace the entry.
+    pub omp_todos: Vec<OmpTodo>,
+    /// Subagents spawned by the OMP session, oldest-first.
+    pub omp_subagents: Vec<OmpSubagent>,
+    /// Current "thinking" text from the agent, if any. Cleared when
+    /// `OmpFrame::Answer` arrives.
+    pub omp_thinking: Option<String>,
+    /// Recent answers from the agent, newest at the back. Capped at
+    /// `OMP_ANSWERS_CAP` (20).
+    pub omp_answers: VecDeque<String>,
+    /// Profile list shown in `Mode::ProfilePicker`. The framework
+    /// supplies these from the persist layer; the reducer stores and
+    /// navigates them.
+    pub profiles: Vec<ProfileSummary>,
+    /// Spell list shown in `Mode::Book`.
+    pub book_spells: Vec<SpellSummary>,
+    /// Picker cursor used by `Mode::ProfilePicker` and `Mode::Book`.
+    /// Both overlays share this field; the reducer clamps it to the
+    /// active list length when navigating.
+    pub picker_index: usize,
 }
 
 impl Default for AppState {
@@ -278,9 +355,21 @@ impl Default for AppState {
             theme_draft: None,
             theme_menu_index: 0,
             theme_draft_palette: None,
+            omp_cards: Vec::new(),
+            omp_todos: Vec::new(),
+            omp_subagents: Vec::new(),
+            omp_thinking: None,
+            omp_answers: VecDeque::new(),
+            profiles: Vec::new(),
+            book_spells: Vec::new(),
+            picker_index: 0,
         }
     }
 }
+
+/// Maximum number of recent answers retained in `AppState::omp_answers`.
+/// The reducer drops the oldest entry when the deque grows past this cap.
+pub const OMP_ANSWERS_CAP: usize = 20;
 
 impl AppState {
     /// Construct the state the framework starts the host binary in:
@@ -310,13 +399,16 @@ pub fn reduce(state: AppState, event: Event) -> AppState {
             should_quit: true,
             ..state
         },
-        // Key, Outgoing, and CloseOverlay are handled by `step`; the
-        // pure projection just bumps the clock so toasts still expire
-        // even when the framework skips the side channel.
-        Event::Key(_) | Event::Outgoing(_) | Event::CloseOverlay => AppState {
-            clock: state.clock + 1,
-            ..state
-        },
+        // Key, Outgoing, CloseOverlay, and OmpFrameReceived are
+        // handled by `step`; the pure projection just bumps the clock
+        // so toasts still expire even when the framework skips the
+        // side channel.
+        Event::Key(_) | Event::Outgoing(_) | Event::CloseOverlay | Event::OmpFrameReceived(_) => {
+            AppState {
+                clock: state.clock + 1,
+                ..state
+            }
+        }
     }
 }
 
@@ -354,14 +446,68 @@ pub fn step(state: AppState, event: Event) -> (AppState, Vec<Outgoing>) {
                 ..state
             }
         }
-        Event::Key(action) => apply_key(state, action, &mut out),
-        Event::Outgoing(o) => apply_outgoing(state, o, &mut out),
         Event::CloseOverlay => AppState {
             mode: Mode::Cockpit,
             ..state
         },
+        Event::Key(action) => apply_key(state, action, &mut out),
+        Event::Outgoing(o) => apply_outgoing(state, o, &mut out),
+        Event::OmpFrameReceived(frame) => ingest_omp_frame(state, frame),
     };
     (next, out)
+}
+
+/// Route an incoming `OmpFrame` into the right `AppState` field. Pure:
+/// no I/O, no allocation beyond what the new entry needs.
+fn ingest_omp_frame(mut state: AppState, frame: OmpFrame) -> AppState {
+    match frame {
+        OmpFrame::ToolCall { id, tool, args } => {
+            state.omp_cards.push(OmpCard {
+                id,
+                tool,
+                args: args.into_iter().collect(),
+                started: Some(state.clock),
+                ended: None,
+                output: None,
+            });
+        }
+        OmpFrame::ToolResult { id, output } => {
+            if let Some(card) = state.omp_cards.iter_mut().find(|c| c.id == id) {
+                card.ended = Some(state.clock);
+                card.output = Some(output);
+            }
+        }
+        OmpFrame::TodoUpdate { id, text, done } => {
+            if let Some(existing) = state.omp_todos.iter_mut().find(|t| t.id == id) {
+                existing.text = text;
+                existing.done = done;
+            } else {
+                state.omp_todos.push(OmpTodo { id, text, done });
+            }
+        }
+        OmpFrame::Subagent { id, task } => {
+            state.omp_subagents.push(OmpSubagent { id, task });
+        }
+        OmpFrame::Thinking { text, .. } => {
+            state.omp_thinking = Some(text);
+        }
+        OmpFrame::Answer { text, .. } => {
+            state.omp_thinking = None;
+            push_answer(&mut state.omp_answers, text);
+        }
+        // Ask/StreamingChunk/Error don't mutate cockpit state in v1.12.
+        OmpFrame::Ask { .. } | OmpFrame::StreamingChunk { .. } | OmpFrame::Error { .. } => {}
+    }
+    state
+}
+
+/// Push `answer` onto the deque, then truncate to `OMP_ANSWERS_CAP`.
+/// Centralised so tests can exercise the cap behaviour directly.
+fn push_answer(deque: &mut VecDeque<String>, answer: String) {
+    deque.push_back(answer);
+    while deque.len() > OMP_ANSWERS_CAP {
+        deque.pop_front();
+    }
 }
 /// Open a modal overlay. Returns the input state unchanged when the
 /// current mode is not `Cockpit` (one overlay at a time).
@@ -568,24 +714,71 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
                 state
             }
         }
-        KeyAction::Enter => match state.focus {
-            Focus::Agents => {
-                out.push(Outgoing::SelectAgent(state.selected_agent));
-                state
+        KeyAction::Enter => {
+            // Picker overlays have their own Enter semantics. Clone
+            // the active list before moving `state` into the helper.
+            match state.mode {
+                Mode::ProfilePicker => {
+                    let profiles = state.profiles.clone();
+                    return enter_picker(state, &profiles, Outgoing::PickProfile, out);
+                }
+                Mode::Book => {
+                    let spells = state.book_spells.clone();
+                    return enter_picker(state, &spells, Outgoing::RunSpell, out);
+                }
+                _ => {}
             }
-            Focus::Prompt => {
-                if state.prompt.is_empty() {
+            match state.focus {
+                Focus::Agents => {
+                    out.push(Outgoing::SelectAgent(state.selected_agent));
                     state
-                } else {
-                    out.push(Outgoing::SubmitPrompt(state.prompt.clone()));
-                    AppState {
-                        prompt: String::new(),
-                        ..state
+                }
+                Focus::Prompt => {
+                    if state.prompt.is_empty() {
+                        state
+                    } else {
+                        out.push(Outgoing::SubmitPrompt(state.prompt.clone()));
+                        AppState {
+                            prompt: String::new(),
+                            ..state
+                        }
                     }
                 }
+                Focus::Session => state,
             }
-            Focus::Session => state,
-        },
+        }
+        KeyAction::ProfileUp => {
+            let n = state.profiles.len();
+            if state.mode == Mode::ProfilePicker {
+                picker_move(state, n, PickerDelta::Up)
+            } else {
+                state
+            }
+        }
+        KeyAction::ProfileDown => {
+            let n = state.profiles.len();
+            if state.mode == Mode::ProfilePicker {
+                picker_move(state, n, PickerDelta::Down)
+            } else {
+                state
+            }
+        }
+        KeyAction::BookUp => {
+            let n = state.book_spells.len();
+            if state.mode == Mode::Book {
+                picker_move(state, n, PickerDelta::Up)
+            } else {
+                state
+            }
+        }
+        KeyAction::BookDown => {
+            let n = state.book_spells.len();
+            if state.mode == Mode::Book {
+                picker_move(state, n, PickerDelta::Down)
+            } else {
+                state
+            }
+        }
         KeyAction::Backspace => {
             if state.focus == Focus::Prompt {
                 let mut p = state.prompt;
@@ -605,6 +798,77 @@ fn apply_key(state: AppState, action: KeyAction, out: &mut Vec<Outgoing>) -> App
             }
         }
         KeyAction::Left | KeyAction::Right => state,
+    }
+}
+
+/// Direction of a picker cursor move.
+enum PickerDelta {
+    Up,
+    Down,
+}
+
+/// Move `state.picker_index` by `delta`, wrapping at the bounds. The
+/// empty-list case is a no-op (the cursor stays at 0).
+fn picker_move(state: AppState, len: usize, delta: PickerDelta) -> AppState {
+    if len == 0 {
+        return AppState {
+            picker_index: 0,
+            ..state
+        };
+    }
+    let next = match delta {
+        PickerDelta::Up => {
+            if state.picker_index == 0 {
+                len - 1
+            } else {
+                state.picker_index - 1
+            }
+        }
+        PickerDelta::Down => (state.picker_index + 1) % len,
+    };
+    AppState {
+        picker_index: next,
+        ..state
+    }
+}
+
+/// Confirm the currently-highlighted picker entry. Emits `mk_out(id)`
+/// with the entry's id and keeps the state in the picker mode (the
+/// framework will translate the emitted `Outgoing` into a connection
+/// or a spell run). When the list is empty the key is a no-op.
+fn enter_picker<T, F>(state: AppState, list: &[T], mk_out: F, out: &mut Vec<Outgoing>) -> AppState
+where
+    F: FnOnce(String) -> Outgoing,
+    T: PickerEntry,
+{
+    if list.is_empty() {
+        return state;
+    }
+    let idx = state.picker_index.min(list.len() - 1);
+    let entry = &list[idx];
+    let id = entry_id(entry);
+    out.push(mk_out(id));
+    state
+}
+
+/// Extract the id field from a `ProfileSummary` or `SpellSummary`.
+/// Both types carry an `id: String` field, so we delegate to the field
+/// projection to keep `enter_picker` polymorphic.
+fn entry_id<T: PickerEntry>(entry: &T) -> String {
+    entry.id().to_string()
+}
+
+trait PickerEntry {
+    fn id(&self) -> &str;
+}
+impl PickerEntry for ProfileSummary {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+impl PickerEntry for SpellSummary {
+    fn id(&self) -> &str {
+        &self.id
     }
 }
 

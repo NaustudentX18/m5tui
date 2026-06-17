@@ -1151,6 +1151,7 @@ version = "1.0.0"
 name = "m5tui-core"
 version = "1.0.0"
 dependencies = [
+ "m5tui-omp",
  "m5tui-themes",
 ]
 
@@ -1189,7 +1190,6 @@ name = "m5tui-omp"
 version = "1.0.0"
 dependencies = [
  "log",
- "m5tui-core",
  "m5tui-themes",
  "serde",
  "serde_json",

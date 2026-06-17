@@ -13,3 +13,4 @@ workspace = true
 
 [dependencies]
 m5tui-themes = { path = "../m5tui-themes" }
+m5tui-omp = { path = "../m5tui-omp" }

@@ -46,6 +46,18 @@ pub enum KeyAction {
     /// In the log viewer, jump back to the newest line and re-enable
     /// follow-tail.
     LogScrollBottom,
+    /// In the profile picker, move selection up. Triggered by `k`
+    /// while `Mode::ProfilePicker` is active.
+    ProfileUp,
+    /// In the profile picker, move selection down. Triggered by `j`
+    /// while `Mode::ProfilePicker` is active.
+    ProfileDown,
+    /// In the book/spell picker, move selection up. Triggered by `k`
+    /// while `Mode::Book` is active.
+    BookUp,
+    /// In the book/spell picker, move selection down. Triggered by `j`
+    /// while `Mode::Book` is active.
+    BookDown,
     /// In the log viewer, toggle the follow-tail flag.
     LogToggleFollow,
     /// Open the device settings screen. Triggered by the `;s` chord.
@@ -159,6 +171,10 @@ pub enum Event {
     /// This is a duplicate of `Outgoing(Outgoing::CloseOverlay)` but it
     /// keeps the public surface symmetric (one variant per direction).
     CloseOverlay,
+    /// A frame arrived from the OMP transport. The framework injects
+    /// this whenever `m5tui_omp::OmpSession::poll` returns a frame.
+    /// The reducer routes it into the right `AppState` field.
+    OmpFrameReceived(m5tui_omp::OmpFrame),
 }
 
 #[cfg(test)]

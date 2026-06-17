@@ -1,6 +1,6 @@
 # m5Tui
 
-> **m5Tui v1.11.0 — real device drivers + market GitHub Pages backend.** M0–M2 are functionally done; M3–M6 are now real (RusshClient, JsonCodec, host audio, live preview, vault JSONL) on the host side. M3/M4/M5/M5b still need the ESP toolchain + Pages site to talk to real hardware/network.
+> **m5Tui v1.13.0 — stub-to-real wave 12: book registry, full Markdown renderer, OMP event widgets.** M0–M2 are functionally done; M3–M6 are now real (RusshClient, JsonCodec, host audio, live preview, vault JSONL, OMP event widgets, profile/book picker UIs, book YAML loader with hot-reload) on the host side. M3/M4/M5/M5b still need the ESP toolchain + Pages site to talk to real hardware/network.
 
 ## What is m5Tui?
 
@@ -27,18 +27,18 @@ it understands agents, voice, and the device.
 
 ## Status
 
-🟢 **v1.11.0 — 2026-06-17** — Real device drivers (ST7789/TCA8418/BMI270/SD/ES8311, host-mock tested) + market GitHub Pages HTML backend + publish script. v1.10 added real russh client + channel + keepalive. 395 tests green across 10 crates. See `CHANGELOG.md` and `ROADMAP.md`.
+🟢 **v1.13.0 — 2026-06-17** — Stub-to-real wave 12: `m5tui-book` `FileRegistry` + `load_book_dir` with hot-reload, full `m5tui-handoff` Markdown renderer + `InMemoryVaultClient`, `m5tui-core` OMP event widgets + profile/book picker UIs. 485 tests green across 13 crates (+41 vs v1.12). v1.12 added the boot screen + about + log viewer overlays; v1.11 added real device drivers and the market GitHub Pages backend. See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## What's not done yet
 
 M0–M2 are functionally done. M3–M6 + v1.x are now real on the host side; the only remaining work is operator-side integration:
 
 - **M3 — SSH + profiles:** `RusshClient` / `RusshChannel` / `Keepalive` / `known_hosts` are implemented and unit-tested against a mock server. Real Tailscale connection to `aiserver-1`, first-boot wizard, jump host, and SD-backed known_hosts file are operator work.
-- **M4 — OMP integration:** `JsonCodec` round-trips all 9 frame kinds; `MockOmpServer` simulates `omp --mode rpc`. Real connection to a live OMP instance is operator work.
+- **M4 — OMP integration:** `JsonCodec` round-trips all 9 frame kinds; `MockOmpServer` simulates `omp --mode rpc`; the cockpit right pane now renders `ToolCall`/`TodoUpdate`/`Subagent`/`Thinking`/`Answer` frames as cards. Real connection to a live OMP instance is operator work.
 - **M5 — Voice / PTT:** Host `cpal` audio I/O + WAV codec + PTT state machine + auto-push SCP planner are implemented and tested. Device `esp-i2s` + ES8311 codec wiring is the next wave.
-- **M5a — Book of Commands:** `Spell::render_prompts` + `AuthorEditor` are implemented. Real on-device YAML loader, author mode, and SD-card storage are operator work.
+- **M5a — Book of Commands:** `load_book_dir` walks `book/*.yaml`, parses the 6 sample spell shapes, and `FileRegistry::refresh_if_stale()` hot-reloads on mtime change. Author mode + per-profile override remain operator work.
 - **M5b — Community Theme Market:** HTTPS `ureq` client + offline cache + `github_pages_html` + `MarketPublisher` + `scripts/market-publish.sh` are implemented. Operator needs to (a) stand up the GitHub Pages site, (b) provision a B2/R2 bucket, (c) set `M5TUI_ASSET_BUCKET` and `M5TUI_ASSET_URL`.
-- **M6 — Handoff + vault:** `parse_hit_jsonl` / `SearchHistory` / `;continue` are implemented. Real SFTP fetch of `agent-prompt.md` + live `obsidian-memory search` invocation over SSH are operator work.
+- **M6 — Handoff + vault:** Full `render_markdown` (CommonMark subset, 40-col wrap) + `InMemoryVaultClient` for offline `;m` search. Real SFTP fetch of `agent-prompt.md` over SSH is operator work.
 - **Device drivers:** `drivers.rs` defines ST7789V2 / TCA8418 / BMI270 / SD / ES8311 structs with `Transport` / `SpiBus` / `I2sBus` traits. Host-mock tests are green. The on-device `unsafe extern "C"` paths into `esp-idf-hal` are the final step; needs ESP-IDF + the Cardputer-Adv connected over USB.
 
 All of the above is operator-side work. The Rust workspace, tests, CI, and trait contracts are ready for it.
@@ -86,7 +86,7 @@ unify them.
 
 **Owner:** Forest
 **Drafted:** 2026-06-15
-**Last sync:** 2026-06-17 (v1.11.0 real device drivers + market backend)
+**Last sync:** 2026-06-17 (v1.13.0 book FileRegistry + Markdown renderer + OMP event widgets)
 **Target device:** M5Stack Cardputer-Adv (K132-Adv, ESP32-S3)
 **Target server:** `aiserver-1` (Pi 5, Tailscale 100.126.207.73)
 **License:** MIT

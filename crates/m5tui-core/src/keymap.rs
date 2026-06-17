@@ -93,12 +93,15 @@ pub fn parse_chord(prev: Option<char>, new: char) -> Option<KeyAction> {
 /// binding for `c`; returns `None` when the caller should fall back
 /// to `from_char` / `parse_chord`.
 ///
-/// Today only `Mode::LogViewer` has in-mode bindings:
-/// - `j` -> `LogScrollUp` (one line older)
-/// - `k` -> `LogScrollDown` (one line newer)
-/// - `g` -> `LogScrollTop` (jump to oldest)
-/// - `G` -> `LogScrollBottom` (jump to newest + re-enable follow)
-/// - `f` -> `LogToggleFollow` (toggle follow-tail)
+/// Bindings by mode:
+/// - `Mode::LogViewer`:
+///   - `j` -> `LogScrollUp` (one line older)
+///   - `k` -> `LogScrollDown` (one line newer)
+///   - `g` -> `LogScrollTop` (jump to oldest)
+///   - `G` -> `LogScrollBottom` (jump to newest + re-enable follow)
+///   - `f` -> `LogToggleFollow` (toggle follow-tail)
+/// - `Mode::ProfilePicker`: `j`/`k` move the cursor down/up.
+/// - `Mode::Book`: `j`/`k` move the cursor down/up.
 pub fn keymap_for_mode(mode: Mode, c: char) -> Option<KeyAction> {
     match mode {
         Mode::LogViewer => match c {
@@ -107,6 +110,16 @@ pub fn keymap_for_mode(mode: Mode, c: char) -> Option<KeyAction> {
             'g' => Some(KeyAction::LogScrollTop),
             'G' => Some(KeyAction::LogScrollBottom),
             'f' => Some(KeyAction::LogToggleFollow),
+            _ => None,
+        },
+        Mode::ProfilePicker => match c {
+            'j' => Some(KeyAction::ProfileDown),
+            'k' => Some(KeyAction::ProfileUp),
+            _ => None,
+        },
+        Mode::Book => match c {
+            'j' => Some(KeyAction::BookDown),
+            'k' => Some(KeyAction::BookUp),
             _ => None,
         },
         _ => None,

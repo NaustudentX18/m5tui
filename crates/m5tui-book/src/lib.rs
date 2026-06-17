@@ -6,6 +6,8 @@
 //! stack; real on-device author mode is deferred.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Param {
@@ -206,13 +208,19 @@ impl AuthorEditor {
         self.values.get(name).map(String::as_str)
     }
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BookError {
     Invalid(String),
     NotFound(String),
     Duplicate(String),
+    DuplicateName(String),
     MissingParam(String),
+    Io(String),
+    Parse {
+        path: PathBuf,
+        line: usize,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for BookError {
@@ -221,12 +229,34 @@ impl std::fmt::Display for BookError {
             Self::Invalid(s) => write!(f, "invalid: {s}"),
             Self::NotFound(s) => write!(f, "not found: {s}"),
             Self::Duplicate(s) => write!(f, "duplicate: {s}"),
+            Self::DuplicateName(s) => write!(f, "duplicate name: {s}"),
             Self::MissingParam(s) => write!(f, "missing param: {s}"),
+            Self::Io(msg) => write!(f, "io error: {msg}"),
+            Self::Parse {
+                path,
+                line,
+                message,
+            } => {
+                write!(
+                    f,
+                    "parse error in {} at line {line}: {message}",
+                    path.display()
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for BookError {}
+
+impl BookError {
+    /// Format an `std::io::Error` together with the offending path so
+    /// the variant stays cloneable / comparable (mirrors the
+    /// `m5tui-persist::PersistError::io` pattern).
+    pub fn io(action: &str, path: &Path, e: std::io::Error) -> Self {
+        Self::Io(format!("{action} {}: {e}", path.display()))
+    }
+}
 
 /// Spell storage.
 pub trait BookRegistry: Send + Sync {
@@ -246,6 +276,18 @@ pub struct InMemoryRegistry {
 impl InMemoryRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Insert a validated spell. Used by directory loaders. Differs
+    /// from `BookRegistry::add` only in that it returns the explicit
+    /// `DuplicateName` variant instead of the generic `Duplicate`.
+    pub fn insert(&mut self, spell: Spell) -> Result<(), BookError> {
+        spell.validate()?;
+        if self.spells.contains_key(&spell.name) {
+            return Err(BookError::DuplicateName(spell.name));
+        }
+        self.spells.insert(spell.name.clone(), spell);
+        Ok(())
     }
 }
 
@@ -355,10 +397,311 @@ impl UndoStack {
     }
 }
 
-/// Load all `.yaml` files under a directory into a registry.
-pub fn load_book_dir(_dir: &std::path::Path) -> Result<InMemoryRegistry, BookError> {
-    // M5a stub: real YAML loader deferred. Return empty registry.
-    Ok(InMemoryRegistry::new())
+/// Load all `.yaml` files directly under `dir` into a fresh registry.
+/// Empty directories are not an error. The walker is non-recursive
+/// (M5a only ships a flat spell directory). Files that fail to
+/// parse bubble up with the offending path and line; readers see the
+/// first failure, not a silently-dropped file.
+pub fn load_book_dir(dir: &Path) -> Result<InMemoryRegistry, BookError> {
+    let mut registry = InMemoryRegistry::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| BookError::io("read_dir", dir, e))?;
+    let mut yaml_paths: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("yaml"))
+        .collect();
+    yaml_paths.sort();
+    for path in yaml_paths {
+        let body = std::fs::read_to_string(&path)
+            .map_err(|e| BookError::io("read_to_string", &path, e))?;
+        let spell = parse_spell_yaml(&body).map_err(|message| BookError::Parse {
+            path: path.clone(),
+            line: 0,
+            message,
+        })?;
+        registry.insert(spell)?;
+    }
+    Ok(registry)
+}
+
+/// Hand-rolled parser for the spell YAML shape used in `book/*.yaml`.
+/// Returns a human-readable error message tagged with `line` 0 here
+/// (line numbers for inner errors are not threaded through; the
+/// surrounding `BookError::Parse` carries the file path).
+///
+/// Supported top-level keys: `name`, `key`, `prefix`, `help`,
+/// `params` (list of objects with `name`/`prompt`/`default`/
+/// `required`), `template` (quoted scalar or `|` block scalar),
+/// `undo_template` (same shape as `template`, optional).
+fn parse_spell_yaml(body: &str) -> Result<Spell, String> {
+    let mut spell = Spell::default();
+    let mut i = 0usize;
+    let lines: Vec<&str> = body.lines().collect();
+    while i < lines.len() {
+        let raw = lines[i];
+        let line = raw.trim_end();
+        if line.is_empty() || line.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        let (key, value) = match line.split_once(':') {
+            Some(kv) => kv,
+            None => return Err(format!("expected `key: value`, got `{line}`")),
+        };
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "name" => spell.name = unquote(value).into_owned(),
+            "key" => spell.key = unquote(value).into_owned(),
+            "prefix" => spell.prefix = unquote(value).into_owned(),
+            "help" => spell.help = unquote(value).into_owned(),
+            "params" => {
+                if !value.is_empty() {
+                    return Err(format!("`params` must be a list, got `{value}`"));
+                }
+                i += 1;
+                while i < lines.len() {
+                    let pline = lines[i].trim_end();
+                    if pline.is_empty() || pline.starts_with('#') {
+                        i += 1;
+                        continue;
+                    }
+                    let stripped = pline.trim_start();
+                    if !stripped.starts_with("- ") {
+                        break;
+                    }
+                    // Collect the bullet header plus any continuation
+                    // lines that are indented deeper than the bullet
+                    // (the param record is a multi-line object).
+                    let mut buf = stripped.trim_start_matches("- ").to_string();
+                    i += 1;
+                    while i < lines.len() {
+                        let cont = lines[i];
+                        if cont.is_empty() {
+                            break;
+                        }
+                        if cont.starts_with(' ') || cont.starts_with('\t') {
+                            buf.push(' ');
+                            buf.push_str(cont.trim());
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    spell.params.push(
+                        parse_param_item(&buf)
+                            .map_err(|m| format!("param #{}: {m}", spell.params.len() + 1))?,
+                    );
+                }
+                continue;
+            }
+            "template" | "undo_template" => {
+                let block = if value == "|" {
+                    let mut collected = Vec::new();
+                    i += 1;
+                    while i < lines.len() {
+                        let bl = lines[i];
+                        if bl.is_empty() {
+                            collected.push(String::new());
+                            i += 1;
+                            continue;
+                        }
+                        if bl.starts_with(' ') || bl.starts_with('\t') {
+                            collected.push(bl.trim_start().to_string());
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    collected.join("\n")
+                } else {
+                    i += 1;
+                    unquote(value).into_owned()
+                };
+                if key == "template" {
+                    spell.template = block;
+                } else {
+                    spell.undo_template = Some(block);
+                }
+                continue;
+            }
+            _ => {
+                // Unknown key — ignored for forward compat, like the
+                // 6 sample files would expect (no extra metadata).
+            }
+        }
+        i += 1;
+    }
+    spell.validate().map_err(|e| e.to_string())?;
+    Ok(spell)
+}
+
+fn parse_param_item(item: &str) -> Result<Param, String> {
+    let mut p = Param::default();
+    // The buffer may contain multiple `key: value` pairs joined by
+    // spaces (one per line of the YAML param record). Walk it and
+    // extract a value for each known key.
+    const KEYS: &[&str] = &["name", "prompt", "default", "required"];
+    for key in KEYS {
+        let needle = format!("{key}:");
+        if let Some(idx) = item.find(&needle) {
+            let after = &item[idx + needle.len()..];
+            // Value runs until the next " <known-key>:" boundary or
+            // end of input. Trim leading whitespace.
+            let trimmed = after.trim_start();
+            let mut end = trimmed.len();
+            for next in KEYS {
+                let marker = format!(" {next}:");
+                if let Some(j) = trimmed.find(&marker) {
+                    if j < end {
+                        end = j;
+                    }
+                }
+            }
+            let value = trimmed[..end].trim_end();
+            match *key {
+                "name" => p.name = unquote(value).into_owned(),
+                "prompt" => p.prompt = unquote(value).into_owned(),
+                "default" => p.default = Some(unquote(value).into_owned()),
+                "required" => p.required = matches!(value, "true" | "yes" | "1"),
+                _ => {}
+            }
+        }
+    }
+    if p.name.is_empty() {
+        return Err("param missing `name`".to_string());
+    }
+    Ok(p)
+}
+
+/// Strip a single pair of surrounding double or single quotes if present.
+fn unquote(s: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' || first == b'\'') && first == last {
+            return std::borrow::Cow::Owned(s[1..s.len() - 1].to_string());
+        }
+    }
+    std::borrow::Cow::Borrowed(s)
+}
+
+/// Registry backed by a directory on disk. Loads on construction and
+/// hot-reloads on mtime change via `refresh_if_stale`. Mirrors the
+/// style of `m5tui_profile::FileRegistry`.
+pub struct FileRegistry {
+    dir: PathBuf,
+    inner: InMemoryRegistry,
+    mtimes: HashMap<PathBuf, SystemTime>,
+}
+
+impl FileRegistry {
+    pub fn new(dir: &Path) -> Result<Self, BookError> {
+        let inner = load_book_dir(dir)?;
+        let mtimes = collect_mtimes(dir)?;
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            inner,
+            mtimes,
+        })
+    }
+
+    pub fn registry(&self) -> &InMemoryRegistry {
+        &self.inner
+    }
+
+    pub fn spell_count(&self) -> usize {
+        self.inner.list().len()
+    }
+
+    /// Re-read any YAML that is new or whose mtime changed; drop
+    /// spells whose file vanished. Returns `true` if anything changed.
+    pub fn refresh_if_stale(&mut self) -> Result<bool, BookError> {
+        let current = collect_mtimes(&self.dir)?;
+        let mut changed = false;
+
+        // New or modified files: re-parse and insert/replace.
+        for (path, mtime) in &current {
+            let stale = match self.mtimes.get(path) {
+                Some(prev) => *prev != *mtime,
+                None => true,
+            };
+            if !stale {
+                continue;
+            }
+            let body = std::fs::read_to_string(path)
+                .map_err(|e| BookError::io("read_to_string", path, e))?;
+            let spell = parse_spell_yaml(&body).map_err(|message| BookError::Parse {
+                path: path.clone(),
+                line: 0,
+                message,
+            })?;
+            // Remove old version under the same name (if any) before insert.
+            if self.inner.spells.contains_key(&spell.name) {
+                self.inner.spells.remove(&spell.name);
+            }
+            self.inner.insert(spell)?;
+            changed = true;
+        }
+
+        // Deleted files: drop spells whose source path is gone.
+        let removed: Vec<PathBuf> = self
+            .mtimes
+            .keys()
+            .filter(|p| !current.contains_key(*p))
+            .cloned()
+            .collect();
+        for path in &removed {
+            // Map by the stem: spells are keyed by `name`, not filename.
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if self.inner.spells.remove(stem).is_some() {
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            self.mtimes = current;
+        }
+        Ok(changed)
+    }
+}
+
+fn collect_mtimes(dir: &Path) -> Result<HashMap<PathBuf, SystemTime>, BookError> {
+    let mut out = HashMap::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| BookError::io("read_dir", dir, e))?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !(path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("yaml")) {
+            continue;
+        }
+        let mtime = entry
+            .metadata()
+            .map_err(|e| BookError::io("metadata", &path, e))?
+            .modified()
+            .map_err(|e| BookError::io("modified", &path, e))?;
+        out.insert(path, mtime);
+    }
+    Ok(out)
+}
+
+impl BookRegistry for FileRegistry {
+    fn list(&self) -> Vec<&Spell> {
+        self.inner.list()
+    }
+    fn get(&self, name: &str) -> Option<&Spell> {
+        self.inner.get(name)
+    }
+    fn add(&mut self, spell: Spell) -> Result<(), BookError> {
+        self.inner.add(spell)
+    }
+    fn remove(&mut self, name: &str) -> Result<(), BookError> {
+        self.inner.remove(name)
+    }
+    fn export_yaml(&self, name: &str) -> Result<String, BookError> {
+        self.inner.export_yaml(name)
+    }
 }
 
 #[cfg(test)]

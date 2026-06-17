@@ -10,12 +10,15 @@
 //! source of RGB565 constants the widgets reference.
 
 pub mod about;
+pub mod book_picker;
 pub mod boot;
 pub mod cockpit;
 pub mod help;
 pub mod log_viewer;
+pub mod omp_cards;
 pub mod overlay;
 pub mod palette;
+pub mod profile_picker;
 pub mod theme_editor;
 pub mod toast;
 pub mod vu;
