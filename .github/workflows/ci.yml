@@ -13,7 +13,7 @@ jobs:
   host-gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -38,7 +38,7 @@ jobs:
   device-cross-compile-stub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install espup
         run: |
           curl -LO https://github.com/esp-rs/espup/releases/latest/download/espup-x86_64-unknown-linux-gnu
